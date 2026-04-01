@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Salón · Admin</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d0d14;color:#f1f0ec;min-height:100vh}
+.topbar{background:#13131f;border-bottom:1px solid rgba(255,255,255,0.06);padding:0 16px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.topbar-left{display:flex;align-items:center;gap:10px}
+.back-btn{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:6px 12px;font-size:13px;color:#9ca3af;cursor:pointer;text-decoration:none}
+.page-title{font-size:15px;font-weight:600;color:#f1f0ec}
+.content{padding:16px;max-width:800px;margin:0 auto}
+.section{background:#13131f;border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:20px;margin-bottom:16px}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.section-title{font-size:14px;font-weight:600;color:#f1f0ec}
+.btn-add{background:rgba(192,132,252,0.1);border:1px solid rgba(192,132,252,0.3);border-radius:8px;padding:6px 12px;font-size:12px;color:#c084fc;cursor:pointer;transition:all .15s}
+.btn-add:hover{background:rgba(192,132,252,0.2)}
+/* Rows */
+.item-row{display:flex;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);gap:10px}
+.item-row:last-child{border-bottom:none}
+.item-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;flex-shrink:0}
+.item-info{flex:1;min-width:0}
+.item-nombre{font-size:13px;font-weight:500;color:#f1f0ec}
+.item-sub{font-size:11px;color:#6b7280;margin-top:2px}
+.rol-badge{font-size:10px;padding:2px 8px;border-radius:99px;background:rgba(192,132,252,0.1);color:#c084fc;border:1px solid rgba(192,132,252,0.2)}
+.edit-btn{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:7px;padding:4px 10px;font-size:11px;color:#9ca3af;cursor:pointer}
+.toggle-btn{width:40px;height:20px;border-radius:99px;border:none;cursor:pointer;transition:background .2s;flex-shrink:0}
+.toggle-btn.on{background:#c084fc}
+.toggle-btn.off{background:#374151}
+/* Licencias */
+.lic-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05)}
+.lic-row:last-child{border-bottom:none}
+.lic-mes{font-size:13px;color:#f1f0ec;font-weight:500}
+.lic-badge-ok{font-size:11px;padding:3px 10px;border-radius:99px;background:rgba(74,222,128,0.1);color:#4ade80;border:1px solid rgba(74,222,128,0.2)}
+.lic-badge-no{font-size:11px;padding:3px 10px;border-radius:99px;background:rgba(239,68,68,0.1);color:#f87171;border:1px solid rgba(239,68,68,0.2)}
+.btn-pagar{background:rgba(192,132,252,0.1);border:1px solid rgba(192,132,252,0.3);border-radius:7px;padding:5px 10px;font-size:11px;color:#c084fc;cursor:pointer}
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:none;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.show{display:flex}
+.modal{background:#13131f;border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:28px;width:100%;max-width:380px}
+.modal h2{font-size:15px;font-weight:600;margin-bottom:18px}
+.fl{font-size:11px;color:#6b7280;margin-bottom:6px;font-weight:500}
+.fi{width:100%;background:#0d0d14;border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:10px 13px;font-size:13px;color:#f1f0ec;outline:none;font-family:inherit;margin-bottom:12px}
+.fi:focus{border-color:rgba(192,132,252,0.4)}
+.fi option{background:#13131f;color:#f1f0ec}
+.btn-row{display:flex;gap:8px}
+.btn-save{flex:1;background:linear-gradient(135deg,#c084fc,#e879f9);border:none;border-radius:9px;padding:12px;font-size:13px;font-weight:600;color:#fff;cursor:pointer}
+.btn-cancel{flex:1;background:transparent;border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:12px;font-size:13px;color:#6b7280;cursor:pointer}
+.color-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.color-dot{width:28px;height:28px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:border .15s}
+.color-dot.sel{border-color:#fff}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#13131f;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:14px 20px;font-size:14px;color:#f1f0ec;transition:transform .3s;z-index:999;white-space:nowrap}
+.toast.show{transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-left">
+    <a href="dashboard.html" class="back-btn">← Volver</a>
+    <span class="page-title">⚙️ Administración</span>
+  </div>
+</div>
+<div class="content">
+  <!-- Usuarios -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">👤 Usuarios del sistema</div>
+      <button class="btn-add" onclick="abrirModalUsuario()">+ Nuevo</button>
+    </div>
+    <div id="listaUsuarios"></div>
+  </div>
+
+  <!-- Estilistas -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">💇 Estilistas</div>
+      <button class="btn-add" onclick="abrirModalEstilista()">+ Nueva</button>
+    </div>
+    <div id="listaEstilistas"></div>
+  </div>
+
+  <!-- Licencias -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">🔑 Licencias mensuales</div>
+      <button class="btn-add" onclick="crearLicenciaMes()">+ Mes siguiente</button>
+    </div>
+    <div id="listaLicencias"></div>
+  </div>
+</div>
+
+<!-- Modal usuario -->
+<div class="modal-overlay" id="modalUsuario" onclick="cerrarModal('modalUsuario',event)">
+  <div class="modal">
+    <h2 id="tituloUsuario">Nuevo usuario</h2>
+    <input type="hidden" id="uId"/>
+    <div class="fl">Nombre</div><input class="fi" type="text" id="uNombre" placeholder="Ej: Valentina López"/>
+    <div class="fl">Usuario (login)</div><input class="fi" type="text" id="uUsuario" placeholder="valentin"/>
+    <div class="fl">PIN (4-8 dígitos)</div><input class="fi" type="password" id="uPin" placeholder="••••" maxlength="8"/>
+    <div class="fl">Rol</div>
+    <select class="fi" id="uRol">
+      <option value="recepcionista">Recepcionista</option>
+      <option value="estilista">Estilista</option>
+      <option value="admin">Admin</option>
+    </select>
+    <div class="btn-row">
+      <button class="btn-cancel" onclick="document.getElementById('modalUsuario').classList.remove('show')">Cancelar</button>
+      <button class="btn-save" onclick="guardarUsuario()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal estilista -->
+<div class="modal-overlay" id="modalEstilista" onclick="cerrarModal('modalEstilista',event)">
+  <div class="modal">
+    <h2 id="tituloEstilista">Nueva estilista</h2>
+    <input type="hidden" id="eId"/>
+    <div class="fl">Nombre</div><input class="fi" type="text" id="eNombre" placeholder="Ej: Valentina"/>
+    <div class="fl">Especialidad</div><input class="fi" type="text" id="eEspecialidad" placeholder="Ej: Colorimetría"/>
+    <div class="fl">Color en el calendario</div>
+    <div class="color-row" id="colorRow"></div>
+    <input type="hidden" id="eColor" value="#c084fc"/>
+    <div class="btn-row">
+      <button class="btn-cancel" onclick="document.getElementById('modalEstilista').classList.remove('show')">Cancelar</button>
+      <button class="btn-save" onclick="guardarEstilista()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const SUPABASE_URL = 'https://leuvcsfbzzlhvyedzplj.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxldXZjc2ZienpsaHZ5ZWR6cGxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNzI4NDMsImV4cCI6MjA5MDY0ODg0M30.7kxn3mbwJRhC5t6aAwx6OPGwA6_t7pwf1ZyzW-VAY5w';
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  const COLORES = ['#f97316','#8b5cf6','#ec4899','#06b6d4','#10b981','#f59e0b','#ef4444','#c084fc','#84cc16','#14b8a6'];
+
+  window.addEventListener('load', async () => {
+    const raw = sessionStorage.getItem('salon_user');
+    if (!raw) { window.location.href='index.html'; return; }
+    const s = JSON.parse(raw);
+    if (s.rol !== 'admin') { window.location.href='dashboard.html'; return; }
+    // Render paleta de colores
+    const cr = document.getElementById('colorRow');
+    COLORES.forEach(c => {
+      const dot = document.createElement('div');
+      dot.className='color-dot'; dot.style.background=c;
+      dot.onclick=()=>{ document.getElementById('eColor').value=c; document.querySelectorAll('.color-dot').forEach(d=>d.classList.remove('sel')); dot.classList.add('sel'); };
+      cr.appendChild(dot);
+    });
+    await Promise.all([cargarUsuarios(), cargarEstilistas(), cargarLicencias()]);
+  });
+
+  async function cargarUsuarios() {
+    const { data } = await sb.from('usuarios').select('*').order('nombre');
+    document.getElementById('listaUsuarios').innerHTML = (data||[]).map(u=>`
+      <div class="item-row">
+        <div class="item-avatar" style="background:linear-gradient(135deg,#c084fc,#e879f9)">${u.nombre.charAt(0)}</div>
+        <div class="item-info">
+          <div class="item-nombre">${u.nombre} <span class="rol-badge">${u.rol}</span></div>
+          <div class="item-sub">@${u.usuario}</div>
+        </div>
+        <button class="edit-btn" onclick="editarUsuario(${u.id})">Editar</button>
+        <button class="toggle-btn ${u.activo?'on':'off'}" onclick="toggleUsuario(${u.id},${u.activo})"></button>
+      </div>`).join('');
+  }
+
+  async function cargarEstilistas() {
+    const { data } = await sb.from('estilistas').select('*').order('nombre');
+    document.getElementById('listaEstilistas').innerHTML = (data||[]).map(e=>`
+      <div class="item-row">
+        <div class="item-avatar" style="background:${e.color||'#c084fc'}">${e.nombre.charAt(0)}</div>
+        <div class="item-info">
+          <div class="item-nombre">${e.nombre}</div>
+          <div class="item-sub">${e.especialidad||'Sin especialidad'}</div>
+        </div>
+        <button class="edit-btn" onclick="editarEstilista(${e.id})">Editar</button>
+        <button class="toggle-btn ${e.activo?'on':'off'}" onclick="toggleEstilista(${e.id},${e.activo})"></button>
+      </div>`).join('');
+  }
+
+  async function cargarLicencias() {
+    const { data } = await sb.from('licencias').select('*').order('mes',{ascending:false}).limit(12);
+    document.getElementById('listaLicencias').innerHTML = (data||[]).map(l=>`
+      <div class="lic-row">
+        <div class="lic-mes">${l.mes}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="${l.pagada?'lic-badge-ok':'lic-badge-no'}">${l.pagada?'✓ Pagada':'✗ Pendiente'}</span>
+          ${!l.pagada?`<button class="btn-pagar" onclick="pagarLicencia(${l.id})">Marcar pagada</button>`:''}
+        </div>
+      </div>`).join('');
+  }
+
+  function abrirModalUsuario() {
+    ['uId','uNombre','uUsuario','uPin'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('uRol').value='recepcionista';
+    document.getElementById('tituloUsuario').textContent='Nuevo usuario';
+    document.getElementById('modalUsuario').classList.add('show');
+  }
+
+  async function editarUsuario(id) {
+    const { data } = await sb.from('usuarios').select('*').eq('id',id).single();
+    document.getElementById('uId').value=id;
+    document.getElementById('uNombre').value=data.nombre;
+    document.getElementById('uUsuario').value=data.usuario;
+    document.getElementById('uPin').value='';
+    document.getElementById('uRol').value=data.rol;
+    document.getElementById('tituloUsuario').textContent='Editar usuario';
+    document.getElementById('modalUsuario').classList.add('show');
+  }
+
+  async function guardarUsuario() {
+    const id=document.getElementById('uId').value;
+    const nombre=document.getElementById('uNombre').value.trim();
+    const usuario=document.getElementById('uUsuario').value.trim();
+    const pin=document.getElementById('uPin').value.trim();
+    const rol=document.getElementById('uRol').value;
+    if (!nombre||!usuario) { toast('Completa nombre y usuario','error'); return; }
+    if (id) {
+      const upd = {nombre,usuario,rol};
+      if (pin) upd.pin=pin;
+      await sb.from('usuarios').update(upd).eq('id',id);
+    } else {
+      if (!pin) { toast('El PIN es obligatorio para nuevos usuarios','error'); return; }
+      await sb.from('usuarios').insert({nombre,usuario,pin,rol});
+    }
+    toast('✦ Usuario guardado','success');
+    document.getElementById('modalUsuario').classList.remove('show');
+    await cargarUsuarios();
+  }
+
+  async function toggleUsuario(id,actual) { await sb.from('usuarios').update({activo:!actual}).eq('id',id); await cargarUsuarios(); }
+
+  function abrirModalEstilista() {
+    ['eId','eNombre','eEspecialidad'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('eColor').value='#c084fc';
+    document.querySelectorAll('.color-dot').forEach(d=>d.classList.remove('sel'));
+    document.getElementById('tituloEstilista').textContent='Nueva estilista';
+    document.getElementById('modalEstilista').classList.add('show');
+  }
+
+  async function editarEstilista(id) {
+    const { data } = await sb.from('estilistas').select('*').eq('id',id).single();
+    document.getElementById('eId').value=id;
+    document.getElementById('eNombre').value=data.nombre;
+    document.getElementById('eEspecialidad').value=data.especialidad||'';
+    document.getElementById('eColor').value=data.color||'#c084fc';
+    document.getElementById('tituloEstilista').textContent='Editar estilista';
+    document.getElementById('modalEstilista').classList.add('show');
+  }
+
+  async function guardarEstilista() {
+    const id=document.getElementById('eId').value;
+    const nombre=document.getElementById('eNombre').value.trim();
+    const especialidad=document.getElementById('eEspecialidad').value.trim();
+    const color=document.getElementById('eColor').value;
+    if (!nombre) { toast('Ingresa el nombre','error'); return; }
+    if (id) await sb.from('estilistas').update({nombre,especialidad:especialidad||null,color}).eq('id',id);
+    else await sb.from('estilistas').insert({nombre,especialidad:especialidad||null,color});
+    toast('✦ Estilista guardada','success');
+    document.getElementById('modalEstilista').classList.remove('show');
+    await cargarEstilistas();
+  }
+
+  async function toggleEstilista(id,actual) { await sb.from('estilistas').update({activo:!actual}).eq('id',id); await cargarEstilistas(); }
+
+  async function pagarLicencia(id) {
+    await sb.from('licencias').update({pagada:true,pagada_en:new Date().toISOString()}).eq('id',id);
+    toast('✦ Licencia marcada como pagada','success');
+    await cargarLicencias();
+  }
+
+  async function crearLicenciaMes() {
+    const { data } = await sb.from('licencias').select('mes').order('mes',{ascending:false}).limit(1);
+    const ultimo = data?.[0]?.mes || new Date().toISOString().slice(0,7);
+    const [y,m] = ultimo.split('-').map(Number);
+    const nextDate = new Date(y, m, 1);
+    const nextMes = nextDate.toISOString().slice(0,7);
+    await sb.from('licencias').insert({mes:nextMes,pagada:false});
+    toast('Licencia para '+nextMes+' creada','success');
+    await cargarLicencias();
+  }
+
+  function cerrarModal(id, e) { if(e.target===document.getElementById(id)) document.getElementById(id).classList.remove('show'); }
+  function toast(msg,tipo='success'){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show '+tipo;setTimeout(()=>t.classList.remove('show'),3000);}
+</script>
+</body>
+</html>
