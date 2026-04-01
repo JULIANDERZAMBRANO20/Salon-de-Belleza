@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Salón · Calendario</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d0d14;color:#f1f0ec;min-height:100vh}
+.topbar{background:#13131f;border-bottom:1px solid rgba(255,255,255,0.06);padding:0 16px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.topbar-left{display:flex;align-items:center;gap:10px}
+.back-btn{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:6px 12px;font-size:13px;color:#9ca3af;cursor:pointer;text-decoration:none}
+.page-title{font-size:15px;font-weight:600;color:#f1f0ec}
+.topbar-right{display:flex;align-items:center;gap:8px}
+.fecha-nav{display:flex;align-items:center;gap:6px}
+.nav-btn{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:5px 10px;font-size:13px;color:#9ca3af;cursor:pointer;transition:all .15s}
+.nav-btn:hover{background:rgba(192,132,252,0.1);border-color:rgba(192,132,252,0.3);color:#c084fc}
+.fecha-label{font-size:13px;font-weight:500;color:#f1f0ec;min-width:90px;text-align:center}
+.btn-hoy{background:rgba(192,132,252,0.1);border:1px solid rgba(192,132,252,0.3);border-radius:8px;padding:5px 12px;font-size:12px;color:#c084fc;cursor:pointer}
+.btn-nueva{background:linear-gradient(135deg,#c084fc,#e879f9);border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;color:#fff;cursor:pointer;text-decoration:none;display:flex;align-items:center;gap:5px}
+/* Filtro de estilistas */
+.estilistas-bar{background:#13131f;border-bottom:1px solid rgba(255,255,255,0.05);padding:10px 16px;display:flex;gap:8px;overflow-x:auto;scrollbar-width:none}
+.estilistas-bar::-webkit-scrollbar{display:none}
+.esti-chip{padding:5px 14px;border-radius:99px;border:1px solid rgba(255,255,255,0.08);font-size:12px;color:#9ca3af;cursor:pointer;white-space:nowrap;transition:all .15s;background:transparent}
+.esti-chip.activo{color:#fff;border-color:transparent}
+/* Calendario diario */
+.cal-wrapper{overflow-x:auto;padding:16px}
+.cal-table{width:100%;min-width:700px;border-collapse:collapse}
+.cal-table th{font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.07)}
+.hora-col{width:60px;font-size:11px;color:#4b5563;padding:0 8px;vertical-align:top;padding-top:6px}
+.slot-row{border-bottom:1px solid rgba(255,255,255,0.04)}
+.slot-row:hover .slot-cell{background:rgba(255,255,255,0.02)}
+.slot-cell{padding:3px 5px;border-left:1px solid rgba(255,255,255,0.04);vertical-align:top;min-height:40px;cursor:pointer;transition:background .1s;position:relative}
+.slot-cell:hover{background:rgba(192,132,252,0.05) !important}
+.cita-block{border-radius:8px;padding:6px 8px;margin-bottom:3px;cursor:pointer;transition:opacity .15s;border-left:3px solid transparent}
+.cita-block:hover{opacity:.85}
+.cita-cliente{font-size:11px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cita-servicio{font-size:10px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cita-hora{font-size:10px;opacity:.6}
+/* Modal detalle cita */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:none;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.show{display:flex}
+.modal{background:#13131f;border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:28px;width:100%;max-width:420px;max-height:90vh;overflow-y:auto}
+.modal h2{font-size:16px;font-weight:600;margin-bottom:20px;color:#f1f0ec}
+.info-row{display:flex;justify-content:space-between;align-items:flex-start;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)}
+.info-row:last-child{border-bottom:none}
+.info-key{font-size:12px;color:#6b7280}
+.info-val{font-size:13px;color:#f1f0ec;text-align:right;max-width:60%}
+.estado-badge{font-size:11px;padding:3px 10px;border-radius:99px;font-weight:500}
+.estado-pendiente{background:rgba(234,179,8,0.15);color:#fbbf24;border:1px solid rgba(234,179,8,0.25)}
+.estado-confirmada{background:rgba(74,222,128,0.1);color:#4ade80;border:1px solid rgba(74,222,128,0.2)}
+.estado-en_proceso{background:rgba(96,165,250,0.1);color:#60a5fa;border:1px solid rgba(96,165,250,0.2)}
+.estado-completada{background:rgba(167,139,250,0.1);color:#a78bfa;border:1px solid rgba(167,139,250,0.2)}
+.estado-cancelada{background:rgba(239,68,68,0.1);color:#f87171;border:1px solid rgba(239,68,68,0.2)}
+.estado-no_show{background:rgba(107,114,128,0.15);color:#9ca3af;border:1px solid rgba(107,114,128,0.2)}
+.modal-acciones{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}
+.btn-accion{flex:1;min-width:120px;padding:10px;border-radius:9px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid;transition:opacity .15s;text-align:center}
+.btn-accion:hover{opacity:.8}
+.btn-completar{background:rgba(167,139,250,0.1);border-color:rgba(167,139,250,0.3);color:#a78bfa}
+.btn-cancelar{background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.25);color:#f87171}
+.btn-cobrar{background:linear-gradient(135deg,#c084fc,#e879f9);border-color:transparent;color:#fff}
+.btn-cerrar-modal{background:transparent;border-color:rgba(255,255,255,0.1);color:#6b7280}
+.pago-section{margin-top:16px;padding:14px;background:rgba(192,132,252,0.06);border:1px solid rgba(192,132,252,0.15);border-radius:10px;display:none}
+.pago-section.show{display:block}
+.pago-section h3{font-size:13px;color:#c084fc;margin-bottom:12px}
+.mp-mini-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-bottom:10px}
+.mp-mini{background:#0d0d14;border:1px solid rgba(255,255,255,0.07);border-radius:7px;padding:6px;text-align:center;cursor:pointer;font-size:10px;color:#9ca3af}
+.mp-mini.selected{background:rgba(192,132,252,0.1);border-color:rgba(192,132,252,0.4);color:#c084fc}
+.precio-custom-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.precio-custom-row label{font-size:12px;color:#a78bfa;white-space:nowrap}
+.precio-custom-row input{flex:1;background:#0d0d14;border:1px solid rgba(255,255,255,0.08);border-radius:7px;padding:7px 10px;font-size:13px;color:#f1f0ec;outline:none}
+.btn-registrar-pago{width:100%;background:linear-gradient(135deg,#c084fc,#e879f9);border:none;border-radius:9px;padding:11px;font-size:13px;font-weight:600;color:#fff;cursor:pointer}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#13131f;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:14px 20px;font-size:14px;color:#f1f0ec;transition:transform .3s;z-index:999;white-space:nowrap;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.loading-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:150;display:none;align-items:center;justify-content:center}
+.loading-overlay.show{display:flex}
+.spinner-big{width:40px;height:40px;border:3px solid rgba(192,132,252,0.3);border-top-color:#c084fc;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <a href="dashboard.html" class="back-btn">← Panel</a>
+    <span class="page-title">📅 Calendario</span>
+  </div>
+  <div class="topbar-right">
+    <div class="fecha-nav">
+      <button class="nav-btn" onclick="cambiarDia(-1)">‹</button>
+      <span class="fecha-label" id="fechaLabel">—</span>
+      <button class="nav-btn" onclick="cambiarDia(1)">›</button>
+    </div>
+    <button class="btn-hoy" onclick="irHoy()">Hoy</button>
+    <a href="agendar.html" class="btn-nueva">+ Cita</a>
+  </div>
+</div>
+
+<div class="estilistas-bar" id="estilB">
+  <div class="esti-chip activo" id="chip-todos" onclick="filtrarEstilista('todos')" style="background:#374151;border-color:#374151">Todas</div>
+</div>
+
+<div class="cal-wrapper">
+  <div id="calContenido"></div>
+</div>
+
+<!-- Modal detalle -->
+<div class="modal-overlay" id="modalOverlay" onclick="cerrarModal(event)">
+  <div class="modal" id="modal">
+    <h2 id="mTitulo">Cita</h2>
+    <div id="mContenido"></div>
+    <div class="pago-section" id="pagoSection">
+      <h3>💳 Registrar pago</h3>
+      <div class="mp-mini-grid" id="mpMiniGrid"></div>
+      <div class="precio-custom-row">
+        <label>Valor cobrado $</label>
+        <input type="number" id="valorCobrado" placeholder="0"/>
+      </div>
+      <button class="btn-registrar-pago" onclick="registrarPago()">Confirmar pago</button>
+    </div>
+    <div class="modal-acciones" id="mAcciones"></div>
+  </div>
+</div>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner-big"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const SUPABASE_URL = 'https://leuvcsfbzzlhvyedzplj.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxldXZjc2ZienpsaHZ5ZWR6cGxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNzI4NDMsImV4cCI6MjA5MDY0ODg0M30.7kxn3mbwJRhC5t6aAwx6OPGwA6_t7pwf1ZyzW-VAY5w';
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  let session = null;
+  let fechaActual = new Date();
+  let estilistas = [];
+  let citas = [];
+  let filtroEstilista = 'todos';
+  let citaActual = null;
+  let metodoPagoModal = null;
+  const HORAS = Array.from({length:13},(_,i)=>i+8); // 8am a 8pm
+
+  const METODOS = ['Efectivo','Nequi','Daviplata','Transferencia','Tarjeta débito','Tarjeta crédito'];
+  const ESTADO_COLOR = {pendiente:'#fbbf24',confirmada:'#4ade80',en_proceso:'#60a5fa',completada:'#a78bfa',cancelada:'#f87171',no_show:'#9ca3af'};
+
+  window.addEventListener('load', async () => {
+    const raw = sessionStorage.getItem('salon_user');
+    if (!raw) { window.location.href='index.html'; return; }
+    session = JSON.parse(raw);
+    await cargarEstilistas();
+    await cargarYRenderizar();
+  });
+
+  async function cargarEstilistas() {
+    const { data } = await sb.from('estilistas').select('*').eq('activo',true).order('nombre');
+    estilistas = data || [];
+    const bar = document.getElementById('estilB');
+    estilistas.forEach(e => {
+      const chip = document.createElement('div');
+      chip.className = 'esti-chip';
+      chip.id = 'chip-' + e.id;
+      chip.textContent = e.nombre;
+      chip.style.setProperty('--color', e.color || '#c084fc');
+      chip.onclick = () => filtrarEstilista(e.id);
+      bar.appendChild(chip);
+    });
+  }
+
+  function filtrarEstilista(id) {
+    filtroEstilista = id;
+    document.querySelectorAll('.esti-chip').forEach(c => {
+      c.classList.remove('activo');
+      c.style.background = '';
+      c.style.borderColor = '';
+      c.style.color = '';
+    });
+    const chip = document.getElementById(id === 'todos' ? 'chip-todos' : 'chip-' + id);
+    if (chip) {
+      chip.classList.add('activo');
+      if (id !== 'todos') {
+        const e = estilistas.find(x=>x.id===id);
+        chip.style.background = e?.color || '#c084fc';
+        chip.style.borderColor = e?.color || '#c084fc';
+      } else {
+        chip.style.background = '#374151';
+        chip.style.borderColor = '#374151';
+      }
+      chip.style.color = '#fff';
+    }
+    renderizarCalendario();
+  }
+
+  function cambiarDia(delta) {
+    fechaActual.setDate(fechaActual.getDate() + delta);
+    cargarYRenderizar();
+  }
+
+  function irHoy() {
+    fechaActual = new Date();
+    cargarYRenderizar();
+  }
+
+  async function cargarYRenderizar() {
+    const fStr = fechaStr(fechaActual);
+    const dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+    const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+    document.getElementById('fechaLabel').textContent = `${dias[fechaActual.getDay()]} ${fechaActual.getDate()} ${meses[fechaActual.getMonth()]}`;
+
+    document.getElementById('loadingOverlay').classList.add('show');
+    const { data } = await sb.from('citas').select(`*,cita_servicios(nombre_servicio,precio_unitario),estilistas(nombre,color)`)
+      .eq('fecha', fStr).not('estado','eq','cancelada').order('hora_inicio');
+    citas = data || [];
+    document.getElementById('loadingOverlay').classList.remove('show');
+    renderizarCalendario();
+  }
+
+  function renderizarCalendario() {
+    const esti = filtroEstilista === 'todos' ? estilistas : estilistas.filter(e => e.id == filtroEstilista);
+    const fStr = fechaStr(fechaActual);
+    let html = `<table class="cal-table"><thead><tr>
+      <th class="hora-col">Hora</th>
+      ${esti.map(e=>`<th style="color:${e.color||'#c084fc'}">${e.nombre}</th>`).join('')}
+    </tr></thead><tbody>`;
+
+    HORAS.forEach(h => {
+      const hora = String(h).padStart(2,'0') + ':00';
+      html += `<tr class="slot-row"><td class="hora-col">${hora}</td>`;
+      esti.forEach(e => {
+        const citasSlot = citas.filter(c =>
+          c.estilista_id === e.id &&
+          c.hora_inicio >= hora &&
+          c.hora_inicio < String(h+1).padStart(2,'0')+':00'
+        );
+        html += `<td class="slot-cell" onclick="abrirNuevaCita('${fStr}','${hora}',${e.id})">`;
+        citasSlot.forEach(c => {
+          const color = ESTADO_COLOR[c.estado] || '#c084fc';
+          const servicios = (c.cita_servicios||[]).map(s=>s.nombre_servicio).join(', ');
+          html += `<div class="cita-block" style="background:${color}20;border-left-color:${color}"
+            onclick="event.stopPropagation();abrirDetalle(${c.id})">
+            <div class="cita-cliente">${c.cliente_nombre}</div>
+            <div class="cita-servicio">${servicios || '—'}</div>
+            <div class="cita-hora">${c.hora_inicio.slice(0,5)} – ${c.hora_fin.slice(0,5)}</div>
+          </div>`;
+        });
+        html += '</td>';
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('calContenido').innerHTML = html;
+  }
+
+  function abrirNuevaCita(fecha, hora, estiId) {
+    sessionStorage.setItem('nueva_cita_pre', JSON.stringify({fecha, hora, estiId}));
+    window.location.href = 'agendar.html';
+  }
+
+  async function abrirDetalle(id) {
+    const { data: c } = await sb.from('citas')
+      .select(`*,cita_servicios(*),estilistas(nombre,color),pagos(*)`)
+      .eq('id', id).single();
+    citaActual = c;
+
+    const totalServ = (c.cita_servicios||[]).reduce((s,x)=>s+parseFloat(x.precio_unitario),0);
+    const pago = c.pagos?.[0];
+    const eColor = c.estilistas?.color || '#c084fc';
+
+    document.getElementById('mTitulo').textContent = '📋 ' + c.cliente_nombre;
+    document.getElementById('mContenido').innerHTML = `
+      <div class="info-row"><span class="info-key">Estado</span><span class="estado-badge estado-${c.estado}">${traducirEstado(c.estado)}</span></div>
+      <div class="info-row"><span class="info-key">Estilista</span><span class="info-val" style="color:${eColor}">${c.estilistas?.nombre||'—'}</span></div>
+      <div class="info-row"><span class="info-key">Fecha</span><span class="info-val">${c.fecha} · ${c.hora_inicio?.slice(0,5)} – ${c.hora_fin?.slice(0,5)}</span></div>
+      <div class="info-row"><span class="info-key">Teléfono</span><span class="info-val">${c.cliente_tel||'—'}</span></div>
+      <div class="info-row"><span class="info-key">Servicios</span><span class="info-val">${(c.cita_servicios||[]).map(s=>`${s.nombre_servicio} $${parseInt(s.precio_unitario).toLocaleString('es-CO')}`).join('<br/>')}</span></div>
+      <div class="info-row"><span class="info-key">Total servicios</span><span class="info-val" style="color:#a78bfa;font-weight:600">$${totalServ.toLocaleString('es-CO')}</span></div>
+      ${pago ? `<div class="info-row"><span class="info-key">Pago registrado</span><span class="info-val" style="color:#4ade80">$${parseInt(pago.valor_cobrado).toLocaleString('es-CO')} · ${pago.metodo_pago}</span></div>` : ''}
+      ${c.notas ? `<div class="info-row"><span class="info-key">Notas</span><span class="info-val">${c.notas}</span></div>` : ''}`;
+
+    // Sección de pago
+    const pagoSection = document.getElementById('pagoSection');
+    if (!pago && c.estado !== 'cancelada') {
+      pagoSection.classList.add('show');
+      document.getElementById('valorCobrado').value = totalServ;
+      const mpGrid = document.getElementById('mpMiniGrid');
+      metodoPagoModal = null;
+      mpGrid.innerHTML = METODOS.map(m =>
+        `<div class="mp-mini" onclick="seleccionarMPModal(this,'${m}')">${m}</div>`).join('');
+    } else {
+      pagoSection.classList.remove('show');
+    }
+
+    // Acciones
+    const acc = document.getElementById('mAcciones');
+    let btns = `<button class="btn-accion btn-cerrar-modal" onclick="cerrarModalBtn()">Cerrar</button>`;
+    if (c.estado !== 'completada' && c.estado !== 'cancelada') {
+      btns += `<button class="btn-accion btn-completar" onclick="cambiarEstado(${c.id},'completada')">✔ Completada</button>`;
+      btns += `<button class="btn-accion btn-cancelar" onclick="cambiarEstado(${c.id},'cancelada')">✕ Cancelar</button>`;
+    }
+    acc.innerHTML = btns;
+
+    document.getElementById('modalOverlay').classList.add('show');
+  }
+
+  function seleccionarMPModal(el, m) {
+    document.querySelectorAll('.mp-mini').forEach(b=>b.classList.remove('selected'));
+    el.classList.add('selected');
+    metodoPagoModal = m;
+  }
+
+  async function registrarPago() {
+    if (!metodoPagoModal) { toast('Selecciona el método de pago', 'error'); return; }
+    const valor = parseFloat(document.getElementById('valorCobrado').value) || 0;
+    const totalServ = (citaActual.cita_servicios||[]).reduce((s,x)=>s+parseFloat(x.precio_unitario),0);
+    const ahora = new Date();
+    const hora = String(ahora.getHours()).padStart(2,'0')+':'+String(ahora.getMinutes()).padStart(2,'0');
+    await sb.from('pagos').insert({
+      cita_id: citaActual.id, total_servicios: totalServ, valor_cobrado: valor,
+      metodo_pago: metodoPagoModal, registrado_por: session.usuario,
+      fecha: citaActual.fecha, hora
+    });
+    await cambiarEstado(citaActual.id, 'completada', false);
+    toast('✦ Pago registrado — $' + valor.toLocaleString('es-CO'), 'success');
+    cerrarModalBtn();
+    await cargarYRenderizar();
+  }
+
+  async function cambiarEstado(id, estado, recargar=true) {
+    await sb.from('citas').update({estado}).eq('id', id);
+    if (recargar) { cerrarModalBtn(); toast('Estado actualizado','success'); await cargarYRenderizar(); }
+  }
+
+  function cerrarModal(e) { if (e.target===document.getElementById('modalOverlay')) cerrarModalBtn(); }
+  function cerrarModalBtn() {
+    document.getElementById('modalOverlay').classList.remove('show');
+    citaActual = null; metodoPagoModal = null;
+  }
+
+  function traducirEstado(e) {
+    return {pendiente:'Pendiente',confirmada:'Confirmada',en_proceso:'En proceso',completada:'Completada',cancelada:'Cancelada',no_show:'No asistió'}[e]||e;
+  }
+
+  function fechaStr(d) { return d.toISOString().slice(0,10); }
+
+  function toast(msg, tipo='success') {
+    const t=document.getElementById('toast');
+    t.textContent=msg; t.className='toast show '+tipo;
+    setTimeout(()=>t.classList.remove('show'),3000);
+  }
+</script>
+</body>
+</html>
