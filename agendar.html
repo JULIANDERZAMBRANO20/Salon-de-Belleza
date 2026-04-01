@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Salón · Nueva Cita</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d0d14;color:#f1f0ec;min-height:100vh}
+.topbar{background:#13131f;border-bottom:1px solid rgba(255,255,255,0.06);padding:0 16px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.topbar-left{display:flex;align-items:center;gap:10px}
+.back-btn{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:6px 12px;font-size:13px;color:#9ca3af;cursor:pointer;text-decoration:none}
+.page-title{font-size:15px;font-weight:600;color:#f1f0ec}
+.user-pill{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.05);padding:4px 10px;border-radius:99px}
+.user-dot{width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,#c084fc,#e879f9);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff}
+.user-name{font-size:12px;color:#9ca3af}
+.layout{display:grid;grid-template-columns:1fr}
+@media(min-width:768px){.layout{grid-template-columns:1fr 360px;height:calc(100vh - 56px)}}
+/* Panel izquierdo: catálogo */
+.catalogo-panel{padding:16px;overflow-y:auto}
+@media(min-width:768px){.catalogo-panel{height:calc(100vh - 56px)}}
+.seccion-titulo{font-size:11px;font-weight:600;color:#c084fc;text-transform:uppercase;letter-spacing:.07em;margin:18px 0 10px;padding-left:2px}
+.seccion-titulo:first-child{margin-top:0}
+.servicios-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:8px;margin-bottom:4px}
+.serv-card{background:#13131f;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:13px;cursor:pointer;transition:all .15s;user-select:none;position:relative}
+.serv-card:hover{border-color:rgba(192,132,252,0.35);background:rgba(192,132,252,0.05)}
+.serv-card.seleccionado{border-color:rgba(192,132,252,0.6);background:rgba(192,132,252,0.1)}
+.serv-nombre{font-size:12px;font-weight:500;color:#f1f0ec;line-height:1.4;margin-bottom:6px}
+.serv-meta{display:flex;justify-content:space-between;align-items:center;margin-top:6px}
+.serv-precio{font-size:13px;color:#e879f9;font-weight:600}
+.serv-dur{font-size:11px;color:#4b5563;background:rgba(255,255,255,0.04);padding:2px 7px;border-radius:99px}
+.check-badge{position:absolute;top:8px;right:8px;width:18px;height:18px;background:linear-gradient(135deg,#c084fc,#e879f9);border-radius:50%;display:none;align-items:center;justify-content:center;font-size:10px;color:#fff}
+.serv-card.seleccionado .check-badge{display:flex}
+/* Panel derecho: orden */
+.orden-panel{background:#13131f;border-top:1px solid rgba(255,255,255,0.07);padding:16px}
+@media(min-width:768px){.orden-panel{border-top:none;border-left:1px solid rgba(255,255,255,0.07);height:calc(100vh - 56px);overflow-y:auto;display:flex;flex-direction:column}}
+.orden-titulo{font-size:12px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px}
+.fl{font-size:11px;color:#6b7280;margin-bottom:6px;font-weight:500}
+.fi{width:100%;background:#0d0d14;border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:10px 13px;font-size:13px;color:#f1f0ec;outline:none;font-family:inherit;transition:border .2s}
+.fi:focus{border-color:rgba(192,132,252,0.45)}
+.fi option{background:#13131f;color:#f1f0ec}
+.fg{margin-bottom:12px}
+.fg2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+/* Servicios seleccionados en resumen */
+.orden-items{flex:1;overflow-y:auto;margin:10px 0}
+.orden-empty{text-align:center;padding:28px 16px;color:#374151;font-size:13px}
+.orden-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)}
+.oi-left{flex:1}
+.oi-nombre{font-size:12px;font-weight:500;color:#f1f0ec}
+.oi-dur{font-size:11px;color:#6b7280;margin-top:2px}
+.oi-precio{font-size:13px;font-weight:600;color:#a78bfa;flex-shrink:0;margin-left:8px}
+.oi-rm{font-size:16px;color:#374151;cursor:pointer;padding:0 6px;transition:color .15s}
+.oi-rm:hover{color:#f87171}
+/* Precio personalizado */
+.precio-custom-row{display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:10px 12px;background:rgba(192,132,252,0.06);border:1px solid rgba(192,132,252,0.15);border-radius:10px}
+.precio-custom-row label{font-size:12px;color:#a78bfa;font-weight:500;white-space:nowrap}
+.precio-custom-row input{flex:1;background:#0d0d14;border:1px solid rgba(255,255,255,0.08);border-radius:7px;padding:7px 10px;font-size:14px;color:#f1f0ec;outline:none;font-family:inherit}
+.precio-custom-row input:focus{border-color:rgba(192,132,252,0.45)}
+.toggle-custom{font-size:12px;color:#c084fc;cursor:pointer;text-decoration:underline;margin-bottom:10px;display:inline-block}
+.total-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid rgba(255,255,255,0.08);margin-bottom:14px}
+.total-label{font-size:13px;color:#6b7280}
+.total-val{font-size:24px;font-weight:700;color:#a78bfa}
+.total-nota{font-size:11px;color:#e879f9;margin-left:6px}
+/* Métodos pago */
+.metodos-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:14px}
+.mp-btn{background:#0d0d14;border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:8px 4px;text-align:center;cursor:pointer;transition:all .15s;user-select:none}
+.mp-btn:hover{border-color:rgba(192,132,252,0.3)}
+.mp-btn.selected{background:rgba(192,132,252,0.1);border-color:rgba(192,132,252,0.5)}
+.mp-ico{font-size:16px;margin-bottom:3px}
+.mp-nombre{font-size:10px;color:#9ca3af;font-weight:500}
+.mp-btn.selected .mp-nombre{color:#c084fc}
+.btn-guardar{width:100%;background:linear-gradient(135deg,#c084fc,#e879f9);border:none;border-radius:11px;padding:14px;font-size:15px;font-weight:600;color:#fff;cursor:pointer;transition:opacity .2s;display:flex;align-items:center;justify-content:center;gap:8px}
+.btn-guardar:hover{opacity:.9}
+.btn-guardar:disabled{background:#1f2937;color:#4b5563;cursor:not-allowed}
+.btn-limpiar{width:100%;background:transparent;border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:10px;font-size:13px;color:#6b7280;cursor:pointer;margin-top:8px;transition:all .2s}
+.btn-limpiar:hover{border-color:rgba(239,68,68,0.3);color:#f87171}
+.spinner{width:18px;height:18px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:none}
+.btn-guardar.loading .spinner{display:block}
+.btn-guardar.loading .btn-text{display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#13131f;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:14px 20px;font-size:14px;color:#f1f0ec;transition:transform .3s ease;z-index:999;white-space:nowrap;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.conflict-warn{background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:9px 12px;font-size:12px;color:#f87171;margin-bottom:10px;display:none}
+.duracion-total{font-size:11px;color:#6b7280;text-align:right;margin-bottom:4px}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <a href="dashboard.html" class="back-btn">← Volver</a>
+    <span class="page-title">✦ Nueva Cita</span>
+  </div>
+  <div class="user-pill">
+    <div class="user-dot" id="userInitial">?</div>
+    <span class="user-name" id="userName">...</span>
+  </div>
+</div>
+
+<div class="layout">
+  <!-- Catálogo de servicios -->
+  <div class="catalogo-panel" id="catalogoPanel">
+    <div id="catalogoContenido"></div>
+  </div>
+
+  <!-- Panel de la cita -->
+  <div class="orden-panel">
+    <div class="orden-titulo">📋 Detalle de la cita</div>
+
+    <!-- Datos del cliente -->
+    <div class="fg">
+      <div class="fl">Cliente</div>
+      <div style="position:relative">
+        <input class="fi" type="text" id="clienteInput" placeholder="Buscar o crear cliente..." autocomplete="off" oninput="buscarCliente()" onblur="setTimeout(ocultarSugerencias,200)"/>
+        <div id="sugerencias" style="position:absolute;top:100%;left:0;right:0;background:#1a1a2e;border:1px solid rgba(192,132,252,0.2);border-radius:9px;z-index:50;display:none;max-height:160px;overflow-y:auto;margin-top:4px"></div>
+      </div>
+    </div>
+    <div class="fg">
+      <div class="fl">Teléfono</div>
+      <input class="fi" type="tel" id="clienteTel" placeholder="Ej: 300 123 4567"/>
+    </div>
+
+    <!-- Fecha, hora y estilista -->
+    <div class="fg2">
+      <div>
+        <div class="fl">Fecha</div>
+        <input class="fi" type="date" id="fecha"/>
+      </div>
+      <div>
+        <div class="fl">Hora inicio</div>
+        <input class="fi" type="time" id="horaInicio" step="900" onchange="calcularHoraFin()"/>
+      </div>
+    </div>
+    <div class="fg">
+      <div class="fl">Estilista</div>
+      <select class="fi" id="estilista">
+        <option value="">— Seleccionar estilista —</option>
+      </select>
+    </div>
+
+    <div class="conflict-warn" id="conflictWarn">⚠️ Esta estilista ya tiene una cita en ese horario</div>
+
+    <!-- Servicios seleccionados -->
+    <div class="fl" style="margin-top:4px">Servicios seleccionados</div>
+    <div class="orden-items" id="ordenItems">
+      <div class="orden-empty">Selecciona servicios del catálogo →</div>
+    </div>
+
+    <div class="duracion-total" id="duracionTotal"></div>
+
+    <!-- Precio personalizado -->
+    <span class="toggle-custom" id="toggleCustom" onclick="togglePrecioCustom()">💲 Ajustar precio manualmente</span>
+    <div class="precio-custom-row" id="precioCustomRow" style="display:none">
+      <label>Precio a cobrar $</label>
+      <input type="number" id="precioCustom" placeholder="0" min="0" oninput="actualizarTotal()"/>
+      <span style="font-size:11px;color:#6b7280;cursor:pointer" onclick="resetPrecioCustom()">✕</span>
+    </div>
+
+    <div class="total-row">
+      <span class="total-label">Total</span>
+      <div>
+        <span class="total-val" id="totalCita">$0</span>
+        <span class="total-nota" id="totalNota" style="display:none">modificado</span>
+      </div>
+    </div>
+
+    <!-- Método de pago -->
+    <div class="fl">Método de pago</div>
+    <div class="metodos-grid" id="metodosGrid"></div>
+
+    <div class="fg">
+      <div class="fl">Estado de la cita</div>
+      <select class="fi" id="estadoCita">
+        <option value="pendiente">⏳ Pendiente</option>
+        <option value="confirmada">✅ Confirmada</option>
+        <option value="en_proceso">⚡ En proceso ahora</option>
+        <option value="completada">✔️ Completada</option>
+      </select>
+    </div>
+
+    <div class="fg">
+      <div class="fl">Notas internas</div>
+      <input class="fi" type="text" id="notas" placeholder="Ej: alergias, preferencias..."/>
+    </div>
+
+    <button class="btn-guardar" id="btnGuardar" onclick="guardarCita()">
+      <div class="spinner"></div>
+      <span class="btn-text">✦ Guardar cita</span>
+    </button>
+    <button class="btn-limpiar" onclick="limpiarTodo()">Limpiar formulario</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const SUPABASE_URL = 'https://leuvcsfbzzlhvyedzplj.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxldXZjc2ZienpsaHZ5ZWR6cGxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNzI4NDMsImV4cCI6MjA5MDY0ODg0M30.7kxn3mbwJRhC5t6aAwx6OPGwA6_t7pwf1ZyzW-VAY5w';
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  let session = null;
+  let serviciosSeleccionados = {}; // {id: {nombre, precio, duracion_min}}
+  let serviciosCatalogo = [];
+  let metodoPago = null;
+  let clienteId = null;
+  let precioCustomActivo = false;
+  let clientes = [];
+
+  const METODOS = ['Efectivo','Nequi','Daviplata','Transferencia','Tarjeta débito','Tarjeta crédito'];
+  const METODO_ICO = {'Efectivo':'💵','Nequi':'📱','Daviplata':'📲','Transferencia':'🏦','Tarjeta débito':'💳','Tarjeta crédito':'💳'};
+
+  window.addEventListener('load', async () => {
+    const raw = sessionStorage.getItem('salon_user');
+    if (!raw) { window.location.href = 'index.html'; return; }
+    session = JSON.parse(raw);
+    document.getElementById('userName').textContent = session.nombre;
+    document.getElementById('userInitial').textContent = session.nombre.charAt(0).toUpperCase();
+
+    // Fecha y hora por defecto = ahora
+    const now = new Date();
+    document.getElementById('fecha').value = now.toISOString().slice(0,10);
+    const hh = String(now.getHours()).padStart(2,'0');
+    const mm = String(Math.ceil(now.getMinutes()/15)*15%60).padStart(2,'0');
+    document.getElementById('horaInicio').value = `${hh}:${mm}`;
+
+    await Promise.all([cargarCatalogo(), cargarEstilistas(), cargarMetodos(), cargarClientes()]);
+  });
+
+  async function cargarCatalogo() {
+    const { data } = await sb.from('servicios').select('*').eq('disponible', true).order('orden');
+    serviciosCatalogo = data || [];
+    const cats = [...new Set(serviciosCatalogo.map(s => s.categoria))];
+    const cont = document.getElementById('catalogoContenido');
+    cont.innerHTML = '';
+    cats.forEach(cat => {
+      const t = document.createElement('div');
+      t.className = 'seccion-titulo';
+      t.textContent = cat;
+      cont.appendChild(t);
+      const grid = document.createElement('div');
+      grid.className = 'servicios-grid';
+      serviciosCatalogo.filter(s => s.categoria === cat).forEach(s => {
+        const card = document.createElement('div');
+        card.className = 'serv-card';
+        card.id = 'scard-' + s.id;
+        card.innerHTML = `
+          <div class="check-badge">✓</div>
+          <div class="serv-nombre">${s.nombre}</div>
+          <div class="serv-meta">
+            <div class="serv-precio">$${parseInt(s.precio).toLocaleString('es-CO')}</div>
+            <div class="serv-dur">${s.duracion_min} min</div>
+          </div>`;
+        card.onclick = () => toggleServicio(s);
+        grid.appendChild(card);
+      });
+      cont.appendChild(grid);
+    });
+  }
+
+  async function cargarEstilistas() {
+    const { data } = await sb.from('estilistas').select('*').eq('activo', true).order('nombre');
+    const sel = document.getElementById('estilista');
+    (data || []).forEach(e => {
+      const opt = document.createElement('option');
+      opt.value = e.id;
+      opt.textContent = e.nombre + (e.especialidad ? ` — ${e.especialidad}` : '');
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', verificarConflicto);
+    document.getElementById('fecha').addEventListener('change', verificarConflicto);
+    document.getElementById('horaInicio').addEventListener('change', verificarConflicto);
+  }
+
+  async function cargarMetodos() {
+    const grid = document.getElementById('metodosGrid');
+    METODOS.forEach(m => {
+      const div = document.createElement('div');
+      div.className = 'mp-btn';
+      div.innerHTML = `<div class="mp-ico">${METODO_ICO[m]||'💰'}</div><div class="mp-nombre">${m}</div>`;
+      div.onclick = () => {
+        document.querySelectorAll('.mp-btn').forEach(b=>b.classList.remove('selected'));
+        div.classList.add('selected');
+        metodoPago = m;
+      };
+      grid.appendChild(div);
+    });
+  }
+
+  async function cargarClientes() {
+    const { data } = await sb.from('clientes').select('id,nombre,telefono').eq('activo', true).order('nombre');
+    clientes = data || [];
+  }
+
+  function buscarCliente() {
+    const q = document.getElementById('clienteInput').value.toLowerCase();
+    const box = document.getElementById('sugerencias');
+    if (q.length < 2) { box.style.display='none'; clienteId=null; return; }
+    const matches = clientes.filter(c => c.nombre.toLowerCase().includes(q) || (c.telefono||'').includes(q));
+    if (matches.length === 0) { box.style.display='none'; clienteId=null; return; }
+    box.innerHTML = matches.slice(0,6).map(c => `
+      <div onclick="seleccionarCliente(${c.id},'${c.nombre.replace(/'/g,"\\'")}','${c.telefono||''}')"
+           style="padding:9px 12px;cursor:pointer;font-size:13px;color:#f1f0ec;border-bottom:1px solid rgba(255,255,255,0.05);"
+           onmouseover="this.style.background='rgba(192,132,252,0.1)'" onmouseout="this.style.background=''">${c.nombre}${c.telefono?' · '+c.telefono:''}</div>`).join('');
+    box.style.display = 'block';
+  }
+
+  function seleccionarCliente(id, nombre, tel) {
+    clienteId = id;
+    document.getElementById('clienteInput').value = nombre;
+    document.getElementById('clienteTel').value = tel;
+    document.getElementById('sugerencias').style.display = 'none';
+  }
+
+  function ocultarSugerencias() { document.getElementById('sugerencias').style.display='none'; }
+
+  function toggleServicio(s) {
+    if (serviciosSeleccionados[s.id]) {
+      delete serviciosSeleccionados[s.id];
+      document.getElementById('scard-'+s.id).classList.remove('seleccionado');
+    } else {
+      serviciosSeleccionados[s.id] = { nombre: s.nombre, precio: parseFloat(s.precio), duracion_min: s.duracion_min };
+      document.getElementById('scard-'+s.id).classList.add('seleccionado');
+    }
+    resetPrecioCustom();
+    actualizarOrden();
+    calcularHoraFin();
+  }
+
+  function actualizarOrden() {
+    const items = Object.entries(serviciosSeleccionados);
+    const lista = document.getElementById('ordenItems');
+    const durEl = document.getElementById('duracionTotal');
+    if (items.length === 0) {
+      lista.innerHTML = '<div class="orden-empty">Selecciona servicios del catálogo</div>';
+      durEl.textContent = '';
+    } else {
+      let totalDur = 0;
+      lista.innerHTML = items.map(([id, s]) => {
+        totalDur += s.duracion_min;
+        return `<div class="orden-item">
+          <div class="oi-left">
+            <div class="oi-nombre">${s.nombre}</div>
+            <div class="oi-dur">${s.duracion_min} min</div>
+          </div>
+          <div class="oi-precio">$${s.precio.toLocaleString('es-CO')}</div>
+          <div class="oi-rm" onclick="quitarServicio(${id})">✕</div>
+        </div>`;
+      }).join('');
+      const h = Math.floor(totalDur/60), m = totalDur%60;
+      durEl.textContent = `Duración total: ${h>0?h+'h ':'' }${m>0?m+'min':''}`;
+    }
+    actualizarTotal();
+  }
+
+  function quitarServicio(id) {
+    delete serviciosSeleccionados[id];
+    const card = document.getElementById('scard-'+id);
+    if (card) card.classList.remove('seleccionado');
+    resetPrecioCustom();
+    actualizarOrden();
+    calcularHoraFin();
+  }
+
+  function calcularHoraFin() {
+    const horaInicio = document.getElementById('horaInicio').value;
+    if (!horaInicio) return;
+    const totalMin = Object.values(serviciosSeleccionados).reduce((s,x)=>s+x.duracion_min, 0);
+    if (totalMin === 0) return;
+    const [hh, mm] = horaInicio.split(':').map(Number);
+    const fin = new Date(); fin.setHours(hh, mm+totalMin, 0);
+    const hf = String(fin.getHours()).padStart(2,'0'), mf = String(fin.getMinutes()).padStart(2,'0');
+    // Mostrar hora fin estimada
+    const durEl = document.getElementById('duracionTotal');
+    const dur = document.getElementById('duracionTotal').textContent.replace(/· Fin.*/,'').trim();
+    durEl.textContent = `${dur} · Fin estimado: ${hf}:${mf}`;
+    verificarConflicto();
+  }
+
+  function actualizarTotal() {
+    const totalServicios = Object.values(serviciosSeleccionados).reduce((s,x)=>s+x.precio, 0);
+    const customInput = document.getElementById('precioCustom');
+    const nota = document.getElementById('totalNota');
+    let total = totalServicios;
+    if (precioCustomActivo && customInput.value !== '') {
+      total = parseFloat(customInput.value) || 0;
+      nota.style.display = total !== totalServicios ? 'inline' : 'none';
+    } else {
+      nota.style.display = 'none';
+    }
+    document.getElementById('totalCita').textContent = '$' + total.toLocaleString('es-CO');
+  }
+
+  function togglePrecioCustom() {
+    precioCustomActivo = !precioCustomActivo;
+    const row = document.getElementById('precioCustomRow');
+    const toggle = document.getElementById('toggleCustom');
+    if (precioCustomActivo) {
+      row.style.display = 'flex';
+      const total = Object.values(serviciosSeleccionados).reduce((s,x)=>s+x.precio, 0);
+      document.getElementById('precioCustom').value = total || '';
+      toggle.textContent = '↑ Ocultar ajuste de precio';
+    } else {
+      row.style.display = 'none';
+      toggle.textContent = '💲 Ajustar precio manualmente';
+    }
+    actualizarTotal();
+  }
+
+  function resetPrecioCustom() {
+    precioCustomActivo = false;
+    document.getElementById('precioCustomRow').style.display = 'none';
+    document.getElementById('precioCustom').value = '';
+    document.getElementById('toggleCustom').textContent = '💲 Ajustar precio manualmente';
+    actualizarTotal();
+  }
+
+  async function verificarConflicto() {
+    const estiId = document.getElementById('estilista').value;
+    const fecha  = document.getElementById('fecha').value;
+    const hIni   = document.getElementById('horaInicio').value;
+    const warn   = document.getElementById('conflictWarn');
+    warn.style.display = 'none';
+    if (!estiId || !fecha || !hIni) return;
+    const totalMin = Object.values(serviciosSeleccionados).reduce((s,x)=>s+x.duracion_min, 60);
+    const [hh,mm] = hIni.split(':').map(Number);
+    const finDate = new Date(2000,0,1,hh,mm+totalMin);
+    const hFin = String(finDate.getHours()).padStart(2,'0')+':'+String(finDate.getMinutes()).padStart(2,'0');
+    const { data } = await sb.from('citas').select('id,hora_inicio,hora_fin')
+      .eq('estilista_id', estiId).eq('fecha', fecha)
+      .in('estado', ['pendiente','confirmada','en_proceso']);
+    const conflicto = (data||[]).some(c => hIni < c.hora_fin && hFin > c.hora_inicio);
+    if (conflicto) warn.style.display = 'block';
+  }
+
+  async function guardarCita() {
+    const clienteNombre = document.getElementById('clienteInput').value.trim();
+    const clienteTel    = document.getElementById('clienteTel').value.trim();
+    const estiId        = document.getElementById('estilista').value;
+    const fecha         = document.getElementById('fecha').value;
+    const hIni          = document.getElementById('horaInicio').value;
+    const estado        = document.getElementById('estadoCita').value;
+    const notas         = document.getElementById('notas').value.trim();
+    const items         = Object.entries(serviciosSeleccionados);
+
+    if (!clienteNombre)    { toast('⚠️ Ingresa el nombre del cliente', 'error'); return; }
+    if (!estiId)           { toast('⚠️ Selecciona una estilista', 'error'); return; }
+    if (!fecha || !hIni)   { toast('⚠️ Selecciona fecha y hora', 'error'); return; }
+    if (items.length === 0){ toast('⚠️ Selecciona al menos un servicio', 'error'); return; }
+    if (!metodoPago && (estado === 'completada')) { toast('⚠️ Selecciona el método de pago', 'error'); return; }
+
+    const totalMin = items.reduce((s,[,x])=>s+x.duracion_min, 0) || 60;
+    const [hh,mm]  = hIni.split(':').map(Number);
+    const finDate  = new Date(2000,0,1,hh,mm+totalMin);
+    const hFin     = String(finDate.getHours()).padStart(2,'0')+':'+String(finDate.getMinutes()).padStart(2,'0');
+
+    const totalServicios = items.reduce((s,[,x])=>s+x.precio, 0);
+    let valorCobrado = totalServicios;
+    if (precioCustomActivo && document.getElementById('precioCustom').value !== '') {
+      valorCobrado = parseFloat(document.getElementById('precioCustom').value) || totalServicios;
+    }
+
+    const btn = document.getElementById('btnGuardar');
+    btn.classList.add('loading'); btn.disabled = true;
+
+    try {
+      // Guardar o actualizar cliente
+      let cliId = clienteId;
+      if (!cliId) {
+        const { data: cliData } = await sb.from('clientes').insert({ nombre: clienteNombre, telefono: clienteTel || null }).select('id').single();
+        cliId = cliData?.id || null;
+        await cargarClientes();
+      } else if (clienteTel) {
+        await sb.from('clientes').update({ telefono: clienteTel }).eq('id', cliId);
+      }
+
+      // Insertar cita
+      const { data: citaData, error } = await sb.from('citas').insert({
+        cliente_id: cliId, cliente_nombre: clienteNombre, cliente_tel: clienteTel || null,
+        estilista_id: parseInt(estiId), fecha, hora_inicio: hIni, hora_fin: hFin,
+        estado, notas: notas||null, registrado_por: session.usuario, origen: 'interno'
+      }).select('id').single();
+
+      if (error) throw error;
+
+      // Insertar servicios de la cita
+      await sb.from('cita_servicios').insert(items.map(([id, s]) => ({
+        cita_id: citaData.id, servicio_id: parseInt(id),
+        nombre_servicio: s.nombre, precio_unitario: s.precio, subtotal: s.precio
+      })));
+
+      // Registrar pago si la cita está completada o hay método seleccionado
+      if (metodoPago || estado === 'completada') {
+        const ahora = new Date();
+        const horaReg = String(ahora.getHours()).padStart(2,'0')+':'+String(ahora.getMinutes()).padStart(2,'0');
+        await sb.from('pagos').insert({
+          cita_id: citaData.id, total_servicios: totalServicios,
+          valor_cobrado: valorCobrado, metodo_pago: metodoPago || 'Pendiente',
+          registrado_por: session.usuario, fecha, hora: horaReg
+        });
+      }
+
+      toast('✦ Cita guardada — ' + clienteNombre, 'success');
+      limpiarTodo();
+    } catch(e) {
+      toast('Error al guardar. Intenta de nuevo.', 'error');
+    } finally {
+      btn.classList.remove('loading'); btn.disabled = false;
+    }
+  }
+
+  function limpiarTodo() {
+    serviciosSeleccionados = {};
+    metodoPago = null;
+    clienteId = null;
+    document.getElementById('clienteInput').value = '';
+    document.getElementById('clienteTel').value = '';
+    document.getElementById('notas').value = '';
+    document.getElementById('estadoCita').value = 'pendiente';
+    document.querySelectorAll('.serv-card').forEach(c=>c.classList.remove('seleccionado'));
+    document.querySelectorAll('.mp-btn').forEach(b=>b.classList.remove('selected'));
+    resetPrecioCustom();
+    actualizarOrden();
+  }
+
+  function toast(msg, tipo='success') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show ' + tipo;
+    setTimeout(()=>t.classList.remove('show'), 3000);
+  }
+</script>
+</body>
+</html>
