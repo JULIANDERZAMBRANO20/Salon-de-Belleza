@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Salón · Acceso</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d0d14;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .card{background:#13131f;border:1px solid rgba(255,255,255,0.07);border-radius:20px;padding:44px 38px;width:100%;max-width:380px;box-shadow:0 24px 64px rgba(0,0,0,0.5)}
+  .logo{display:flex;align-items:center;gap:14px;margin-bottom:36px}
+  .logo-icon{width:50px;height:50px;background:linear-gradient(135deg,#c084fc,#e879f9);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0}
+  .logo-text h1{font-size:19px;font-weight:700;color:#f1f0ec;letter-spacing:-.02em}
+  .logo-text p{font-size:12px;color:#6b7280;margin-top:3px}
+  .badge{display:inline-block;background:#1a1a2e;color:#a78bfa;font-size:11px;padding:4px 12px;border-radius:99px;border:1px solid rgba(167,139,250,0.25);margin-bottom:28px}
+  .field{margin-bottom:16px}
+  .field label{display:block;font-size:12px;color:#9ca3af;margin-bottom:7px;font-weight:500}
+  .field input{width:100%;background:#0d0d14;border:1px solid rgba(255,255,255,0.09);border-radius:10px;padding:12px 15px;font-size:14px;color:#f1f0ec;outline:none;transition:border .2s}
+  .field input:focus{border-color:rgba(192,132,252,0.5)}
+  .field input::placeholder{color:#374151}
+  .btn{width:100%;background:linear-gradient(135deg,#c084fc,#e879f9);border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:600;color:#fff;cursor:pointer;margin-top:8px;transition:opacity .2s;letter-spacing:.01em}
+  .btn:hover{opacity:.9}
+  .btn:disabled{background:#1f2937;color:#4b5563;cursor:not-allowed}
+  .error{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:10px 14px;font-size:13px;color:#f87171;margin-top:14px;display:none}
+  .hint{font-size:11px;color:#4b5563;text-align:center;margin-top:16px}
+  .online-link{margin-top:24px;text-align:center;padding-top:20px;border-top:1px solid rgba(255,255,255,0.06)}
+  .online-link a{font-size:12px;color:#a78bfa;text-decoration:none}
+  .online-link a:hover{color:#c084fc}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <div class="logo-icon">💇</div>
+    <div class="logo-text">
+      <h1>Salón de Belleza</h1>
+      <p>Sistema de gestión</p>
+    </div>
+  </div>
+
+  <div class="badge">✦ Sistema activo</div>
+
+  <div class="field">
+    <label>Usuario</label>
+    <input type="text" id="usuario" placeholder="admin" autocomplete="off"/>
+  </div>
+  <div class="field">
+    <label>PIN de acceso</label>
+    <input type="password" id="pin" placeholder="••••" maxlength="8" onkeydown="if(event.key==='Enter')login()"/>
+  </div>
+
+  <button class="btn" id="btnLogin" onclick="login()">Ingresar al sistema</button>
+  <div class="error" id="error"></div>
+  <p class="hint">¿Olvidaste tu PIN? Contacta al administrador</p>
+
+  <div class="online-link">
+    <a href="agendar-online.html">📱 Agendar cita online (clientes)</a>
+  </div>
+</div>
+
+<script>
+  // ⚠️ REEMPLAZA CON TUS DATOS DE SUPABASE
+  const SUPABASE_URL = 'https://leuvcsfbzzlhvyedzplj.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxldXZjc2ZienpsaHZ5ZWR6cGxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNzI4NDMsImV4cCI6MjA5MDY0ODg0M30.7kxn3mbwJRhC5t6aAwx6OPGwA6_t7pwf1ZyzW-VAY5w';
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  async function login() {
+    const usuario = document.getElementById('usuario').value.trim();
+    const pin     = document.getElementById('pin').value.trim();
+    const btn     = document.getElementById('btnLogin');
+    const err     = document.getElementById('error');
+    err.style.display = 'none';
+    if (!usuario || !pin) { mostrarError('Ingresa tu usuario y PIN'); return; }
+    btn.disabled = true; btn.textContent = 'Verificando...';
+    try {
+      // Verificar licencia del mes
+      const mesActual = new Date().toISOString().slice(0,7);
+      const { data: lic } = await sb.from('licencias').select('pagada').eq('mes', mesActual).single();
+      if (!lic || !lic.pagada) {
+        mostrarError('Licencia del mes vencida. Contacta al administrador.');
+        btn.disabled = false; btn.textContent = 'Ingresar al sistema'; return;
+      }
+      const { data, error } = await sb.from('usuarios').select('*')
+        .eq('usuario', usuario).eq('pin', pin).eq('activo', true).single();
+      if (error || !data) { mostrarError('Usuario o PIN incorrecto'); btn.disabled = false; btn.textContent = 'Ingresar al sistema'; return; }
+      sessionStorage.setItem('salon_user', JSON.stringify(data));
+      if (data.rol === 'admin' || data.rol === 'recepcionista') window.location.href = 'dashboard.html';
+      else if (data.rol === 'estilista') window.location.href = 'calendario.html';
+      else window.location.href = 'dashboard.html';
+    } catch(e) {
+      mostrarError('Error de conexión. Revisa tu internet.'); btn.disabled = false; btn.textContent = 'Ingresar al sistema';
+    }
+  }
+  function mostrarError(msg) { const e=document.getElementById('error'); e.textContent=msg; e.style.display='block'; }
+</script>
+</body>
+</html>
