@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Salón · Clientes</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d0d14;color:#f1f0ec;min-height:100vh}
+.topbar{background:#13131f;border-bottom:1px solid rgba(255,255,255,0.06);padding:0 16px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.topbar-left{display:flex;align-items:center;gap:10px}
+.back-btn{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:6px 12px;font-size:13px;color:#9ca3af;cursor:pointer;text-decoration:none}
+.page-title{font-size:15px;font-weight:600;color:#f1f0ec}
+.content{padding:16px;max-width:800px;margin:0 auto}
+.search-bar{display:flex;gap:8px;margin-bottom:16px}
+.search-input{flex:1;background:#13131f;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:10px 14px;font-size:14px;color:#f1f0ec;outline:none}
+.search-input:focus{border-color:rgba(192,132,252,0.4)}
+.cliente-card{background:#13131f;border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:14px 16px;margin-bottom:8px;cursor:pointer;transition:border-color .15s}
+.cliente-card:hover{border-color:rgba(192,132,252,0.25)}
+.cc-header{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.cc-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#c084fc,#e879f9);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0}
+.cc-nombre{font-size:14px;font-weight:600;color:#f1f0ec}
+.cc-tel{font-size:12px;color:#6b7280;margin-top:2px}
+.cc-stats{display:flex;gap:16px}
+.cc-stat{text-align:center}
+.cc-stat-val{font-size:15px;font-weight:600;color:#a78bfa}
+.cc-stat-label{font-size:10px;color:#4b5563;margin-top:2px}
+/* Modal historial */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:none;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.show{display:flex}
+.modal{background:#13131f;border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:24px;width:100%;max-width:460px;max-height:85vh;overflow-y:auto}
+.modal h2{font-size:16px;font-weight:600;margin-bottom:4px}
+.modal .sub{font-size:12px;color:#6b7280;margin-bottom:18px}
+.hist-item{padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05)}
+.hist-item:last-child{border-bottom:none}
+.hi-top{display:flex;justify-content:space-between;align-items:flex-start}
+.hi-servicios{font-size:13px;font-weight:500;color:#f1f0ec}
+.hi-val{font-size:14px;font-weight:600;color:#a78bfa}
+.hi-meta{font-size:11px;color:#4b5563;margin-top:3px}
+.empty{text-align:center;padding:32px;color:#374151;font-size:13px}
+.btn-cerrar{width:100%;background:transparent;border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:11px;font-size:13px;color:#6b7280;cursor:pointer;margin-top:16px}
+.fl{font-size:11px;color:#6b7280;margin-bottom:6px;font-weight:500}
+.fi{width:100%;background:#0d0d14;border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:10px 13px;font-size:13px;color:#f1f0ec;outline:none;font-family:inherit;margin-bottom:12px}
+.fi:focus{border-color:rgba(192,132,252,0.4)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-left">
+    <a href="dashboard.html" class="back-btn">← Volver</a>
+    <span class="page-title">👤 Clientes</span>
+  </div>
+</div>
+<div class="content">
+  <div class="search-bar">
+    <input class="search-input" type="text" id="busqueda" placeholder="🔍 Buscar cliente por nombre o teléfono..." oninput="filtrar()"/>
+  </div>
+  <div id="listaClientes"></div>
+</div>
+
+<!-- Modal historial -->
+<div class="modal-overlay" id="modalOverlay" onclick="cerrarModal(event)">
+  <div class="modal">
+    <h2 id="mNombre">Cliente</h2>
+    <div class="sub" id="mSub"></div>
+    <div id="mHistorial"></div>
+    <button class="btn-cerrar" onclick="document.getElementById('modalOverlay').classList.remove('show')">Cerrar</button>
+  </div>
+</div>
+
+<script>
+  const SUPABASE_URL = 'https://leuvcsfbzzlhvyedzplj.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxldXZjc2ZienpsaHZ5ZWR6cGxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNzI4NDMsImV4cCI6MjA5MDY0ODg0M30.7kxn3mbwJRhC5t6aAwx6OPGwA6_t7pwf1ZyzW-VAY5w';
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  let clientes = [];
+  window.addEventListener('load', async () => {
+    const raw = sessionStorage.getItem('salon_user');
+    if (!raw) { window.location.href='index.html'; return; }
+    await cargarClientes();
+  });
+
+  async function cargarClientes() {
+    const { data } = await sb.from('clientes').select('*').eq('activo',true).order('nombre');
+    // Enriquecer con conteo de citas
+    const { data: citas } = await sb.from('citas').select('cliente_id,estado,cita_servicios(precio_unitario),pagos(valor_cobrado)');
+    clientes = (data||[]).map(c => {
+      const cc = (citas||[]).filter(x=>x.cliente_id===c.id);
+      const total = cc.reduce((s,x)=>s+(x.pagos?.[0]?parseFloat(x.pagos[0].valor_cobrado):0),0);
+      return {...c, num_citas: cc.length, total_gastado: total};
+    });
+    renderizar(clientes);
+  }
+
+  function renderizar(lista) {
+    const cont = document.getElementById('listaClientes');
+    if (!lista.length) { cont.innerHTML='<div class="empty">Sin clientes registrados</div>'; return; }
+    cont.innerHTML = lista.map(c=>`
+      <div class="cliente-card" onclick="verHistorial(${c.id})">
+        <div class="cc-header">
+          <div class="cc-avatar">${c.nombre.charAt(0).toUpperCase()}</div>
+          <div>
+            <div class="cc-nombre">${c.nombre}</div>
+            <div class="cc-tel">${c.telefono||'Sin teléfono'}</div>
+          </div>
+        </div>
+        <div class="cc-stats">
+          <div class="cc-stat"><div class="cc-stat-val">${c.num_citas}</div><div class="cc-stat-label">Citas</div></div>
+          <div class="cc-stat"><div class="cc-stat-val">$${c.total_gastado.toLocaleString('es-CO')}</div><div class="cc-stat-label">Total gastado</div></div>
+        </div>
+      </div>`).join('');
+  }
+
+  function filtrar() {
+    const q = document.getElementById('busqueda').value.toLowerCase();
+    renderizar(q ? clientes.filter(c=>c.nombre.toLowerCase().includes(q)||(c.telefono||'').includes(q)) : clientes);
+  }
+
+  async function verHistorial(id) {
+    const cliente = clientes.find(c=>c.id===id);
+    const { data: citas } = await sb.from('citas')
+      .select('*,cita_servicios(nombre_servicio,precio_unitario),estilistas(nombre),pagos(valor_cobrado,metodo_pago)')
+      .eq('cliente_id',id).order('fecha',{ascending:false}).limit(20);
+    document.getElementById('mNombre').textContent = cliente.nombre;
+    document.getElementById('mSub').textContent = (cliente.telefono||'') + ' · ' + (citas?.length||0) + ' citas registradas';
+    if (!citas||!citas.length) { document.getElementById('mHistorial').innerHTML='<div class="empty">Sin historial de citas</div>'; }
+    else {
+      document.getElementById('mHistorial').innerHTML = citas.map(c=>{
+        const servs = (c.cita_servicios||[]).map(s=>s.nombre_servicio).join(', ');
+        const total = c.pagos?.[0] ? parseFloat(c.pagos[0].valor_cobrado) : (c.cita_servicios||[]).reduce((s,x)=>s+parseFloat(x.precio_unitario),0);
+        return `<div class="hist-item">
+          <div class="hi-top">
+            <div class="hi-servicios">${servs||'—'}</div>
+            <div class="hi-val">$${parseInt(total).toLocaleString('es-CO')}</div>
+          </div>
+          <div class="hi-meta">${c.fecha} · ${c.hora_inicio?.slice(0,5)} · ${c.estilistas?.nombre||'—'} · <span style="color:${estadoColor(c.estado)}">${traducirEstado(c.estado)}</span></div>
+        </div>`;
+      }).join('');
+    }
+    document.getElementById('modalOverlay').classList.add('show');
+  }
+
+  function cerrarModal(e) { if(e.target===document.getElementById('modalOverlay')) document.getElementById('modalOverlay').classList.remove('show'); }
+  function estadoColor(e){return{pendiente:'#fbbf24',confirmada:'#4ade80',completada:'#a78bfa',cancelada:'#f87171'}[e]||'#9ca3af';}
+  function traducirEstado(e){return{pendiente:'Pendiente',confirmada:'Confirmada',en_proceso:'En proceso',completada:'Completada',cancelada:'Cancelada',no_show:'No asistió'}[e]||e;}
+</script>
+</body>
+</html>
