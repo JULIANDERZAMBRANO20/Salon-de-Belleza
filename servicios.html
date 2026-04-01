@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Salón · Servicios</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d0d14;color:#f1f0ec;min-height:100vh}
+.topbar{background:#13131f;border-bottom:1px solid rgba(255,255,255,0.06);padding:0 16px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.topbar-left{display:flex;align-items:center;gap:10px}
+.back-btn{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:6px 12px;font-size:13px;color:#9ca3af;cursor:pointer;text-decoration:none}
+.page-title{font-size:15px;font-weight:600;color:#f1f0ec}
+.btn-nuevo{background:linear-gradient(135deg,#c084fc,#e879f9);border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;color:#fff;cursor:pointer}
+.content{padding:16px;max-width:900px;margin:0 auto}
+.cat-titulo{font-size:11px;font-weight:600;color:#c084fc;text-transform:uppercase;letter-spacing:.07em;margin:20px 0 10px;padding-left:2px}
+.cat-titulo:first-child{margin-top:0}
+.serv-row{display:flex;align-items:center;background:#13131f;border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:12px 14px;margin-bottom:8px;gap:12px;transition:border-color .15s}
+.serv-row:hover{border-color:rgba(192,132,252,0.2)}
+.serv-info{flex:1;min-width:0}
+.serv-nombre{font-size:14px;font-weight:500;color:#f1f0ec}
+.serv-meta{font-size:12px;color:#6b7280;margin-top:3px}
+.serv-precio{font-size:15px;font-weight:600;color:#a78bfa;flex-shrink:0;margin-right:8px}
+.serv-dur{font-size:11px;color:#4b5563;background:rgba(255,255,255,0.04);padding:3px 9px;border-radius:99px;flex-shrink:0}
+.toggle-btn{width:42px;height:22px;border-radius:99px;border:none;cursor:pointer;position:relative;transition:background .2s;flex-shrink:0}
+.toggle-btn.on{background:#c084fc}
+.toggle-btn.off{background:#374151}
+.edit-btn{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:7px;padding:5px 10px;font-size:12px;color:#9ca3af;cursor:pointer;transition:all .15s;flex-shrink:0}
+.edit-btn:hover{border-color:rgba(192,132,252,0.3);color:#c084fc}
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:none;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.show{display:flex}
+.modal{background:#13131f;border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:28px;width:100%;max-width:400px}
+.modal h2{font-size:16px;font-weight:600;margin-bottom:20px}
+.fl{font-size:11px;color:#6b7280;margin-bottom:6px;font-weight:500}
+.fi{width:100%;background:#0d0d14;border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:10px 13px;font-size:13px;color:#f1f0ec;outline:none;font-family:inherit;transition:border .2s;margin-bottom:14px}
+.fi:focus{border-color:rgba(192,132,252,0.4)}
+.fi option{background:#13131f;color:#f1f0ec}
+.btn-row{display:flex;gap:8px;margin-top:4px}
+.btn-save{flex:1;background:linear-gradient(135deg,#c084fc,#e879f9);border:none;border-radius:9px;padding:12px;font-size:14px;font-weight:600;color:#fff;cursor:pointer}
+.btn-cancel{flex:1;background:transparent;border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:12px;font-size:14px;color:#6b7280;cursor:pointer}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#13131f;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:14px 20px;font-size:14px;color:#f1f0ec;transition:transform .3s;z-index:999;white-space:nowrap;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
+.toast.show{transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-left">
+    <a href="dashboard.html" class="back-btn">← Volver</a>
+    <span class="page-title">✂️ Servicios</span>
+  </div>
+  <button class="btn-nuevo" onclick="abrirModal()">+ Nuevo servicio</button>
+</div>
+<div class="content" id="contenido"></div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay" onclick="cerrarModal(event)">
+  <div class="modal">
+    <h2 id="modalTitulo">Nuevo servicio</h2>
+    <input type="hidden" id="editId"/>
+    <div class="fl">Nombre del servicio</div>
+    <input class="fi" type="text" id="sNombre" placeholder="Ej: Corte dama"/>
+    <div class="fl">Categoría</div>
+    <input class="fi" type="text" id="sCat" placeholder="Ej: Corte, Color, Uñas..."/>
+    <div class="fl">Duración (minutos)</div>
+    <input class="fi" type="number" id="sDur" placeholder="60" min="5" step="5"/>
+    <div class="fl">Precio ($)</div>
+    <input class="fi" type="number" id="sPrecio" placeholder="50000" min="0"/>
+    <div class="btn-row">
+      <button class="btn-cancel" onclick="document.getElementById('modalOverlay').classList.remove('show')">Cancelar</button>
+      <button class="btn-save" onclick="guardarServicio()">Guardar</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+  const SUPABASE_URL = 'https://leuvcsfbzzlhvyedzplj.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxldXZjc2ZienpsaHZ5ZWR6cGxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNzI4NDMsImV4cCI6MjA5MDY0ODg0M30.7kxn3mbwJRhC5t6aAwx6OPGwA6_t7pwf1ZyzW-VAY5w';
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  let servicios = [];
+  window.addEventListener('load', async () => {
+    const raw = sessionStorage.getItem('salon_user');
+    if (!raw) { window.location.href='index.html'; return; }
+    await cargarServicios();
+  });
+
+  async function cargarServicios() {
+    const { data } = await sb.from('servicios').select('*').order('categoria').order('orden');
+    servicios = data || [];
+    renderizar();
+  }
+
+  function renderizar() {
+    const cats = [...new Set(servicios.map(s=>s.categoria))];
+    const cont = document.getElementById('contenido');
+    cont.innerHTML = '';
+    cats.forEach(cat => {
+      const t = document.createElement('div');
+      t.className = 'cat-titulo';
+      t.textContent = cat;
+      cont.appendChild(t);
+      servicios.filter(s=>s.categoria===cat).forEach(s => {
+        const row = document.createElement('div');
+        row.className = 'serv-row';
+        row.innerHTML = `
+          <div class="serv-info">
+            <div class="serv-nombre">${s.nombre}</div>
+            <div class="serv-meta">${s.duracion_min} minutos</div>
+          </div>
+          <div class="serv-dur">${s.duracion_min}m</div>
+          <div class="serv-precio">$${parseInt(s.precio).toLocaleString('es-CO')}</div>
+          <button class="edit-btn" onclick="editarServicio(${s.id})">Editar</button>
+          <button class="toggle-btn ${s.disponible?'on':'off'}" onclick="toggleServicio(${s.id},${s.disponible})"></button>`;
+        cont.appendChild(row);
+      });
+    });
+  }
+
+  function abrirModal(id=null) {
+    document.getElementById('editId').value = '';
+    document.getElementById('sNombre').value = '';
+    document.getElementById('sCat').value = '';
+    document.getElementById('sDur').value = '';
+    document.getElementById('sPrecio').value = '';
+    document.getElementById('modalTitulo').textContent = 'Nuevo servicio';
+    document.getElementById('modalOverlay').classList.add('show');
+  }
+
+  function editarServicio(id) {
+    const s = servicios.find(x=>x.id===id);
+    if (!s) return;
+    document.getElementById('editId').value = id;
+    document.getElementById('sNombre').value = s.nombre;
+    document.getElementById('sCat').value = s.categoria;
+    document.getElementById('sDur').value = s.duracion_min;
+    document.getElementById('sPrecio').value = s.precio;
+    document.getElementById('modalTitulo').textContent = 'Editar servicio';
+    document.getElementById('modalOverlay').classList.add('show');
+  }
+
+  async function guardarServicio() {
+    const nombre   = document.getElementById('sNombre').value.trim();
+    const cat      = document.getElementById('sCat').value.trim();
+    const dur      = parseInt(document.getElementById('sDur').value);
+    const precio   = parseFloat(document.getElementById('sPrecio').value);
+    const editId   = document.getElementById('editId').value;
+    if (!nombre || !cat || !dur || !precio) { toast('Completa todos los campos','error'); return; }
+    if (editId) {
+      await sb.from('servicios').update({nombre,categoria:cat,duracion_min:dur,precio}).eq('id',editId);
+    } else {
+      const maxOrden = Math.max(0,...servicios.map(s=>s.orden||0));
+      await sb.from('servicios').insert({nombre,categoria:cat,duracion_min:dur,precio,orden:maxOrden+1});
+    }
+    toast('✦ Servicio guardado','success');
+    document.getElementById('modalOverlay').classList.remove('show');
+    await cargarServicios();
+  }
+
+  async function toggleServicio(id, actual) {
+    await sb.from('servicios').update({disponible:!actual}).eq('id',id);
+    await cargarServicios();
+  }
+
+  function cerrarModal(e) { if (e.target===document.getElementById('modalOverlay')) document.getElementById('modalOverlay').classList.remove('show'); }
+  function toast(msg,tipo='success'){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show '+tipo;setTimeout(()=>t.classList.remove('show'),3000);}
+</script>
+</body>
+</html>
