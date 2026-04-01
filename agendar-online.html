@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Salón · Agendar tu cita</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d0d14;color:#f1f0ec;min-height:100vh}
+.hero{background:linear-gradient(135deg,rgba(192,132,252,0.15),rgba(232,121,249,0.08));border-bottom:1px solid rgba(192,132,252,0.15);padding:32px 20px;text-align:center}
+.hero-icon{font-size:42px;margin-bottom:12px}
+.hero h1{font-size:24px;font-weight:700;color:#f1f0ec;margin-bottom:6px;letter-spacing:-.02em}
+.hero p{font-size:14px;color:#9ca3af}
+.container{max-width:620px;margin:0 auto;padding:24px 16px}
+.step{background:#13131f;border:1px solid rgba(255,255,255,0.07);border-radius:16px;padding:20px;margin-bottom:16px}
+.step-header{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.step-num{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#c084fc,#e879f9);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0}
+.step-title{font-size:14px;font-weight:600;color:#f1f0ec}
+.fl{font-size:11px;color:#6b7280;margin-bottom:6px;font-weight:500}
+.fi{width:100%;background:#0d0d14;border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:11px 13px;font-size:14px;color:#f1f0ec;outline:none;font-family:inherit;transition:border .2s;margin-bottom:12px}
+.fi:focus{border-color:rgba(192,132,252,0.4)}
+.fi option{background:#13131f;color:#f1f0ec}
+/* Servicios */
+.cat-titulo{font-size:11px;font-weight:600;color:#c084fc;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 8px}
+.cat-titulo:first-child{margin-top:0}
+.servicios-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:4px}
+.serv-card{border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:12px;cursor:pointer;transition:all .15s;user-select:none;background:#0d0d14}
+.serv-card:hover{border-color:rgba(192,132,252,0.3)}
+.serv-card.sel{border-color:rgba(192,132,252,0.6);background:rgba(192,132,252,0.08)}
+.serv-nombre{font-size:12px;font-weight:500;color:#f1f0ec;margin-bottom:5px}
+.serv-precio{font-size:13px;color:#e879f9;font-weight:600}
+.serv-dur{font-size:10px;color:#4b5563}
+.check-ico{float:right;color:#c084fc;display:none}
+.serv-card.sel .check-ico{display:inline}
+/* Disponibilidad */
+.slots-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.slot-btn{background:#0d0d14;border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:9px 4px;text-align:center;font-size:12px;color:#9ca3af;cursor:pointer;transition:all .15s}
+.slot-btn:hover{border-color:rgba(192,132,252,0.3);color:#c084fc}
+.slot-btn.sel{background:rgba(192,132,252,0.12);border-color:rgba(192,132,252,0.5);color:#c084fc;font-weight:600}
+.slot-btn.ocupado{background:rgba(239,68,68,0.05);border-color:rgba(239,68,68,0.15);color:#374151;cursor:not-allowed}
+/* Resumen */
+.resumen-item{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:13px}
+.resumen-item:last-child{border-bottom:none}
+.resumen-label{color:#6b7280}
+.resumen-val{color:#f1f0ec;font-weight:500}
+.resumen-total{display:flex;justify-content:space-between;padding-top:12px;margin-top:8px;border-top:1px solid rgba(255,255,255,0.08)}
+.rt-label{font-size:14px;color:#9ca3af}
+.rt-val{font-size:20px;font-weight:700;color:#a78bfa}
+.btn-confirmar{width:100%;background:linear-gradient(135deg,#c084fc,#e879f9);border:none;border-radius:12px;padding:16px;font-size:16px;font-weight:600;color:#fff;cursor:pointer;margin-top:16px;transition:opacity .2s}
+.btn-confirmar:hover{opacity:.9}
+.btn-confirmar:disabled{background:#1f2937;color:#4b5563;cursor:not-allowed}
+.success-card{background:#13131f;border:1px solid rgba(74,222,128,0.25);border-radius:16px;padding:40px 24px;text-align:center;display:none}
+.success-card.show{display:block}
+.success-ico{font-size:48px;margin-bottom:16px}
+.success-card h2{font-size:20px;font-weight:700;color:#4ade80;margin-bottom:8px}
+.success-card p{font-size:14px;color:#9ca3af;line-height:1.6}
+.spinner{width:18px;height:18px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:none;margin:auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-icon">💇‍♀️</div>
+  <h1>Agenda tu cita</h1>
+  <p>Selecciona servicios, estilista y horario</p>
+</div>
+
+<div class="container">
+  <div id="formSection">
+    <!-- Paso 1: Tus datos -->
+    <div class="step">
+      <div class="step-header"><div class="step-num">1</div><div class="step-title">Tus datos</div></div>
+      <div class="fl">Nombre completo *</div>
+      <input class="fi" type="text" id="nombre" placeholder="Ej: María García"/>
+      <div class="fl">Teléfono / WhatsApp *</div>
+      <input class="fi" type="tel" id="telefono" placeholder="Ej: 300 123 4567"/>
+    </div>
+
+    <!-- Paso 2: Servicios -->
+    <div class="step">
+      <div class="step-header"><div class="step-num">2</div><div class="step-title">¿Qué servicios quieres?</div></div>
+      <div id="catalogoOnline"></div>
+      <div id="totalServsRow" style="text-align:right;font-size:13px;color:#a78bfa;margin-top:8px;display:none">
+        <span id="totalServsLabel"></span>
+      </div>
+    </div>
+
+    <!-- Paso 3: Estilista y fecha -->
+    <div class="step">
+      <div class="step-header"><div class="step-num">3</div><div class="step-title">Estilista y fecha</div></div>
+      <div class="fl">Estilista</div>
+      <select class="fi" id="estilistaOnline" onchange="cargarDisponibilidad()">
+        <option value="">— Sin preferencia / Cualquiera disponible —</option>
+      </select>
+      <div class="fl">Fecha</div>
+      <input class="fi" type="date" id="fechaOnline" onchange="cargarDisponibilidad()"/>
+      <div class="fl" style="margin-top:4px">Horario disponible</div>
+      <div class="slots-grid" id="slotsGrid"><p style="color:#4b5563;font-size:13px">Selecciona fecha para ver disponibilidad</p></div>
+    </div>
+
+    <!-- Paso 4: Resumen -->
+    <div class="step" id="resumenSection" style="display:none">
+      <div class="step-header"><div class="step-num">4</div><div class="step-title">Confirmar cita</div></div>
+      <div id="resumenContenido"></div>
+      <button class="btn-confirmar" id="btnConfirmar" onclick="confirmarCita()">
+        <div class="spinner" id="spinnerConfirmar"></div>
+        <span id="textoConfirmar">✦ Confirmar cita</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Éxito -->
+  <div class="success-card" id="successCard">
+    <div class="success-ico">🎉</div>
+    <h2>¡Cita agendada!</h2>
+    <p id="successMsg"></p>
+    <br/>
+    <button style="background:transparent;border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:12px 24px;font-size:14px;color:#9ca3af;cursor:pointer;margin-top:16px" onclick="location.reload()">Agendar otra cita</button>
+  </div>
+</div>
+
+<script>
+  const SUPABASE_URL = 'https://leuvcsfbzzlhvyedzplj.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxldXZjc2ZienpsaHZ5ZWR6cGxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNzI4NDMsImV4cCI6MjA5MDY0ODg0M30.7kxn3mbwJRhC5t6aAwx6OPGwA6_t7pwf1ZyzW-VAY5w';
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  let serviciosSeleccionados = {};
+  let serviciosCatalogo = [];
+  let estilistas = [];
+  let horaSeleccionada = null;
+  let HORARIOS = ['09:00','09:30','10:00','10:30','11:00','11:30','12:00','12:30','13:00','13:30','14:00','14:30','15:00','15:30','16:00','16:30','17:00','17:30','18:00'];
+
+  window.addEventListener('load', async () => {
+    const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate()+1);
+    document.getElementById('fechaOnline').value = tomorrow.toISOString().slice(0,10);
+    document.getElementById('fechaOnline').min = new Date().toISOString().slice(0,10);
+    await Promise.all([cargarCatalogo(), cargarEstilistas()]);
+  });
+
+  async function cargarCatalogo() {
+    const { data } = await sb.from('servicios').select('*').eq('disponible',true).order('orden');
+    serviciosCatalogo = data || [];
+    const cats = [...new Set(serviciosCatalogo.map(s=>s.categoria))];
+    const cont = document.getElementById('catalogoOnline');
+    cont.innerHTML = '';
+    cats.forEach(cat => {
+      const t = document.createElement('div'); t.className='cat-titulo'; t.textContent=cat; cont.appendChild(t);
+      const grid = document.createElement('div'); grid.className='servicios-grid';
+      serviciosCatalogo.filter(s=>s.categoria===cat).forEach(s => {
+        const card = document.createElement('div'); card.className='serv-card'; card.id='ocard-'+s.id;
+        card.innerHTML=`<span class="check-ico">✓</span><div class="serv-nombre">${s.nombre}</div><div style="display:flex;justify-content:space-between;margin-top:4px"><div class="serv-precio">$${parseInt(s.precio).toLocaleString('es-CO')}</div><div class="serv-dur">${s.duracion_min}m</div></div>`;
+        card.onclick=()=>toggleServicio(s);
+        grid.appendChild(card);
+      });
+      cont.appendChild(grid);
+    });
+  }
+
+  async function cargarEstilistas() {
+    const { data } = await sb.from('estilistas').select('*').eq('activo',true).order('nombre');
+    estilistas = data || [];
+    const sel = document.getElementById('estilistaOnline');
+    estilistas.forEach(e => {
+      const opt = document.createElement('option'); opt.value=e.id; opt.textContent=e.nombre+(e.especialidad?' — '+e.especialidad:''); sel.appendChild(opt);
+    });
+  }
+
+  function toggleServicio(s) {
+    if (serviciosSeleccionados[s.id]) delete serviciosSeleccionados[s.id];
+    else serviciosSeleccionados[s.id]={nombre:s.nombre,precio:parseFloat(s.precio),duracion_min:s.duracion_min};
+    document.getElementById('ocard-'+s.id).classList.toggle('sel', !!serviciosSeleccionados[s.id]);
+    const items = Object.values(serviciosSeleccionados);
+    const row = document.getElementById('totalServsRow');
+    if (items.length > 0) {
+      const total = items.reduce((s,x)=>s+x.precio,0);
+      const dur = items.reduce((s,x)=>s+x.duracion_min,0);
+      document.getElementById('totalServsLabel').textContent = `${items.length} servicio${items.length!==1?'s':''} · ${dur}min · $${total.toLocaleString('es-CO')}`;
+      row.style.display='block';
+    } else { row.style.display='none'; }
+    actualizarResumen();
+    cargarDisponibilidad();
+  }
+
+  async function cargarDisponibilidad() {
+    const fecha = document.getElementById('fechaOnline').value;
+    const estiId = document.getElementById('estilistaOnline').value;
+    const grid = document.getElementById('slotsGrid');
+    if (!fecha) return;
+    const totalMin = Object.values(serviciosSeleccionados).reduce((s,x)=>s+x.duracion_min,60);
+    let query = sb.from('citas').select('hora_inicio,hora_fin,estilista_id').eq('fecha',fecha).in('estado',['pendiente','confirmada','en_proceso']);
+    if (estiId) query = query.eq('estilista_id',estiId);
+    const { data: citasExistentes } = await query;
+    grid.innerHTML = '';
+    horaSeleccionada = null;
+    HORARIOS.forEach(h => {
+      const [hh,mm] = h.split(':').map(Number);
+      const finDate = new Date(2000,0,1,hh,mm+totalMin);
+      const hFin = String(finDate.getHours()).padStart(2,'0')+':'+String(finDate.getMinutes()).padStart(2,'0');
+      const ocupado = (citasExistentes||[]).some(c => h < c.hora_fin && hFin > c.hora_inicio);
+      const btn = document.createElement('div');
+      btn.className = 'slot-btn' + (ocupado ? ' ocupado' : '');
+      btn.textContent = h;
+      if (!ocupado) btn.onclick = () => seleccionarSlot(h, btn);
+      grid.appendChild(btn);
+    });
+    actualizarResumen();
+  }
+
+  function seleccionarSlot(h, el) {
+    document.querySelectorAll('.slot-btn').forEach(b=>b.classList.remove('sel'));
+    el.classList.add('sel');
+    horaSeleccionada = h;
+    actualizarResumen();
+  }
+
+  function actualizarResumen() {
+    const nombre = document.getElementById('nombre').value.trim();
+    const items = Object.values(serviciosSeleccionados);
+    const fecha = document.getElementById('fechaOnline').value;
+    const estiId = document.getElementById('estilistaOnline').value;
+    const esti = estilistas.find(e=>e.id==estiId);
+    const sec = document.getElementById('resumenSection');
+    if (!nombre || items.length===0 || !fecha || !horaSeleccionada) { sec.style.display='none'; return; }
+    sec.style.display='block';
+    const total = items.reduce((s,x)=>s+x.precio,0);
+    const dur = items.reduce((s,x)=>s+x.duracion_min,0);
+    const [hh,mm] = horaSeleccionada.split(':').map(Number);
+    const finDate = new Date(2000,0,1,hh,mm+dur);
+    const hFin = String(finDate.getHours()).padStart(2,'0')+':'+String(finDate.getMinutes()).padStart(2,'0');
+    document.getElementById('resumenContenido').innerHTML = `
+      <div class="resumen-item"><span class="resumen-label">Cliente</span><span class="resumen-val">${nombre}</span></div>
+      <div class="resumen-item"><span class="resumen-label">Servicios</span><span class="resumen-val">${items.map(s=>s.nombre).join(', ')}</span></div>
+      <div class="resumen-item"><span class="resumen-label">Estilista</span><span class="resumen-val">${esti?esti.nombre:'Cualquiera disponible'}</span></div>
+      <div class="resumen-item"><span class="resumen-label">Fecha y hora</span><span class="resumen-val">${fecha} · ${horaSeleccionada} – ${hFin}</span></div>
+      <div class="resumen-total"><span class="rt-label">Total estimado</span><span class="rt-val">$${total.toLocaleString('es-CO')}</span></div>`;
+  }
+
+  async function confirmarCita() {
+    const nombre = document.getElementById('nombre').value.trim();
+    const tel    = document.getElementById('telefono').value.trim();
+    const items  = Object.entries(serviciosSeleccionados);
+    const fecha  = document.getElementById('fechaOnline').value;
+    const estiId = document.getElementById('estilistaOnline').value;
+    if (!nombre||!tel) { alert('Por favor ingresa tu nombre y teléfono'); return; }
+    if (items.length===0) { alert('Selecciona al menos un servicio'); return; }
+    if (!horaSeleccionada) { alert('Selecciona un horario disponible'); return; }
+    const dur = Object.values(serviciosSeleccionados).reduce((s,x)=>s+x.duracion_min,0)||60;
+    const [hh,mm] = horaSeleccionada.split(':').map(Number);
+    const finDate = new Date(2000,0,1,hh,mm+dur);
+    const hFin = String(finDate.getHours()).padStart(2,'0')+':'+String(finDate.getMinutes()).padStart(2,'0');
+    // Asignar estilista automática si no eligió
+    let estiAsignado = estiId ? parseInt(estiId) : null;
+    if (!estiAsignado) {
+      const { data: disponibles } = await sb.from('estilistas').select('id').eq('activo',true);
+      const { data: citasOcupadas } = await sb.from('citas').select('estilista_id')
+        .eq('fecha',fecha).in('estado',['pendiente','confirmada','en_proceso'])
+        .gte('hora_inicio',horaSeleccionada).lt('hora_fin',hFin);
+      const ocupadosIds = (citasOcupadas||[]).map(c=>c.estilista_id);
+      const libre = (disponibles||[]).find(e=>!ocupadosIds.includes(e.id));
+      estiAsignado = libre?.id || null;
+    }
+    const btn = document.getElementById('btnConfirmar');
+    btn.disabled=true;
+    document.getElementById('spinnerConfirmar').style.display='block';
+    document.getElementById('textoConfirmar').style.display='none';
+    try {
+      const { data: cliData } = await sb.from('clientes').insert({nombre,telefono:tel}).select('id').single();
+      const { data: citaData, error } = await sb.from('citas').insert({
+        cliente_id:cliData?.id, cliente_nombre:nombre, cliente_tel:tel,
+        estilista_id:estiAsignado, fecha, hora_inicio:horaSeleccionada, hora_fin:hFin,
+        estado:'pendiente', registrado_por:'online', origen:'online'
+      }).select('id').single();
+      if (error) throw error;
+      await sb.from('cita_servicios').insert(items.map(([id,s])=>({
+        cita_id:citaData.id, servicio_id:parseInt(id),
+        nombre_servicio:s.nombre, precio_unitario:s.precio, subtotal:s.precio
+      })));
+      document.getElementById('formSection').style.display='none';
+      const successCard = document.getElementById('successCard');
+      const esti = estilistas.find(e=>e.id===estiAsignado);
+      document.getElementById('successMsg').innerHTML =
+        `Tu cita está agendada para el <strong>${fecha}</strong> a las <strong>${horaSeleccionada}</strong>.<br/>${esti?'Estilista: <strong>'+esti.nombre+'</strong><br/>':''}Te esperamos 🌸`;
+      successCard.classList.add('show');
+    } catch(e) {
+      alert('Error al agendar. Intenta de nuevo.');
+      btn.disabled=false;
+      document.getElementById('spinnerConfirmar').style.display='none';
+      document.getElementById('textoConfirmar').style.display='block';
+    }
+  }
+</script>
+</body>
+</html>
