@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Salón · Finanzas</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d0d14;color:#f1f0ec;min-height:100vh}
+.topbar{background:#13131f;border-bottom:1px solid rgba(255,255,255,0.06);padding:0 16px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.topbar-left{display:flex;align-items:center;gap:10px}
+.back-btn{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:6px 12px;font-size:13px;color:#9ca3af;cursor:pointer;text-decoration:none}
+.page-title{font-size:15px;font-weight:600;color:#f1f0ec}
+/* Tabs */
+.tabs{background:#13131f;border-bottom:1px solid rgba(255,255,255,0.05);display:flex}
+.tab{padding:12px 20px;font-size:13px;color:#6b7280;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+.tab:hover{color:#9ca3af}
+.tab.on{color:#c084fc;border-bottom-color:#c084fc}
+.content{display:none;padding:16px;max-width:1100px;margin:0 auto}
+.content.on{display:block}
+/* KPIs */
+.kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:20px}
+@media(min-width:600px){.kpis{grid-template-columns:repeat(4,1fr)}}
+.kpi{background:#13131f;border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:16px 18px}
+.kpi-lbl{font-size:11px;color:#6b7280;font-weight:500;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em}
+.kpi-val{font-size:24px;font-weight:700;letter-spacing:-.02em}
+.kpi-sub{font-size:11px;color:#4b5563;margin-top:4px}
+/* Graficas */
+.charts-row{display:grid;grid-template-columns:1fr;gap:16px;margin-bottom:20px}
+@media(min-width:720px){.charts-row{grid-template-columns:1fr 1fr}}
+.chart-card{background:#13131f;border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:18px}
+.chart-title{font-size:13px;font-weight:600;color:#9ca3af;margin-bottom:14px;text-transform:uppercase;letter-spacing:.04em}
+.chart-wrap{position:relative;height:200px}
+/* Métodos de pago */
+.metodos-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:20px}
+@media(min-width:500px){.metodos-grid{grid-template-columns:repeat(3,1fr)}}
+.mp-card{background:#13131f;border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:14px 16px}
+.mp-ico-lbl{font-size:12px;color:#6b7280;margin-bottom:6px}
+.mp-monto{font-size:18px;font-weight:700;color:#4ade80}
+.mp-cnt{font-size:11px;color:#4b5563;margin-top:3px}
+.mp-bar{height:3px;border-radius:99px;background:rgba(255,255,255,0.05);margin-top:8px}
+.mp-bar-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,#c084fc,#e879f9)}
+/* Historial */
+.section-lbl{font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;margin-top:20px}
+.section-lbl:first-of-type{margin-top:0}
+.filtros{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.fi-input{background:#13131f;border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:8px 12px;font-size:12px;color:#f1f0ec;outline:none;font-family:inherit}
+.fi-input:focus{border-color:rgba(192,132,252,0.4)}
+.fi-select{background:#13131f;border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:8px 12px;font-size:12px;color:#f1f0ec;outline:none;cursor:pointer}
+.fi-select option{background:#13131f}
+/* Tabla historial */
+.hist-table{width:100%;border-collapse:collapse}
+.hist-table th{font-size:11px;color:#4b5563;font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding:8px 12px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.06)}
+.hist-table td{padding:10px 12px;font-size:12px;border-bottom:1px solid rgba(255,255,255,0.04);vertical-align:middle}
+.hist-table tr:hover td{background:rgba(255,255,255,0.02)}
+.td-cli{font-weight:500;color:#f1f0ec}
+.td-serv{color:#6b7280;max-width:200px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.td-esti{color:#9ca3af}
+.td-val{font-weight:700;color:#4ade80;text-align:right;white-space:nowrap}
+.td-mp{font-size:11px}
+.mp-pill{display:inline-block;padding:2px 8px;border-radius:99px;background:rgba(192,132,252,0.1);color:#c084fc;border:1px solid rgba(192,132,252,0.2);font-size:10px}
+.td-fecha{color:#4b5563;white-space:nowrap}
+.empty-hist{text-align:center;padding:40px;color:#374151;font-size:13px}
+/* Resumen estilistas */
+.esti-table{width:100%;border-collapse:collapse;margin-bottom:16px}
+.esti-table th{font-size:11px;color:#4b5563;font-weight:600;text-transform:uppercase;padding:8px 12px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.06)}
+.esti-table td{padding:10px 12px;font-size:13px;border-bottom:1px solid rgba(255,255,255,0.04)}
+.esti-table tr:hover td{background:rgba(255,255,255,0.02)}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:6px}
+/* Totales footer */
+.total-footer{display:flex;justify-content:flex-end;padding:12px 12px 0;border-top:1px solid rgba(255,255,255,0.07);margin-top:4px}
+.tf-label{font-size:13px;color:#6b7280;margin-right:16px}
+.tf-val{font-size:20px;font-weight:700;color:#4ade80}
+/* Loading */
+.skeleton{background:rgba(255,255,255,0.04);border-radius:8px;height:24px;margin-bottom:8px;animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.ldr-txt{text-align:center;padding:32px;color:#4b5563;font-size:13px}
+/* Botón exportar */
+.btn-export{background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);border-radius:8px;padding:7px 14px;font-size:12px;color:#4ade80;cursor:pointer;transition:all .15s}
+.btn-export:hover{background:rgba(74,222,128,0.2)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <a href="dashboard.html" class="back-btn">← Panel</a>
+    <span class="page-title">💰 Panel Financiero</span>
+  </div>
+  <button class="btn-export" onclick="exportarCSV()">⬇ Exportar CSV</button>
+</div>
+
+<div class="tabs">
+  <div class="tab on"  id="t-dia"  onclick="setTab('dia')">Hoy</div>
+  <div class="tab"     id="t-mes"  onclick="setTab('mes')">Este mes</div>
+  <div class="tab"     id="t-ano"  onclick="setTab('ano')">Este año</div>
+  <div class="tab"     id="t-hist" onclick="setTab('hist')">Historial</div>
+</div>
+
+<!-- Tab Hoy -->
+<div class="content on" id="c-dia">
+  <div class="kpis" id="kDia"></div>
+  <div class="charts-row">
+    <div class="chart-card">
+      <div class="chart-title">Ingresos por hora</div>
+      <div class="chart-wrap"><canvas id="chartHoras"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Métodos de pago — Hoy</div>
+      <div class="chart-wrap"><canvas id="chartMpDia"></canvas></div>
+    </div>
+  </div>
+  <div class="section-lbl">Desglose por método de pago</div>
+  <div class="metodos-grid" id="mpDia"></div>
+  <div class="section-lbl">Por estilista — Hoy</div>
+  <div style="overflow-x:auto"><table class="esti-table"><thead><tr><th>Estilista</th><th>Citas</th><th>Ingresos</th></tr></thead><tbody id="estiDia"></tbody></table></div>
+  <div class="section-lbl">Transacciones del día</div>
+  <div style="overflow-x:auto"><table class="hist-table"><thead><tr><th>Hora</th><th>Cliente</th><th>Servicios</th><th>Estilista</th><th>Método</th><th>Valor</th></tr></thead><tbody id="txDia"></tbody></table></div>
+</div>
+
+<!-- Tab Mes -->
+<div class="content" id="c-mes">
+  <div class="kpis" id="kMes"></div>
+  <div class="charts-row">
+    <div class="chart-card">
+      <div class="chart-title">Ingresos por día del mes</div>
+      <div class="chart-wrap"><canvas id="chartDias"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Métodos de pago — Mes</div>
+      <div class="chart-wrap"><canvas id="chartMpMes"></canvas></div>
+    </div>
+  </div>
+  <div class="section-lbl">Desglose por método de pago</div>
+  <div class="metodos-grid" id="mpMes"></div>
+  <div class="section-lbl">Por estilista — Mes</div>
+  <div style="overflow-x:auto"><table class="esti-table"><thead><tr><th>Estilista</th><th>Citas</th><th>Ingresos</th></tr></thead><tbody id="estiMes"></tbody></table></div>
+</div>
+
+<!-- Tab Año -->
+<div class="content" id="c-ano">
+  <div class="kpis" id="kAno"></div>
+  <div class="chart-card" style="margin-bottom:16px">
+    <div class="chart-title">Ingresos mensuales — <span id="anoLabel"></span></div>
+    <div class="chart-wrap" style="height:240px"><canvas id="chartMeses"></canvas></div>
+  </div>
+  <div class="charts-row">
+    <div class="chart-card">
+      <div class="chart-title">Métodos de pago — Año</div>
+      <div class="chart-wrap"><canvas id="chartMpAno"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Por estilista — Año</div>
+      <div class="chart-wrap"><canvas id="chartEstiAno"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- Tab Historial -->
+<div class="content" id="c-hist">
+  <div class="filtros">
+    <input class="fi-input" type="date" id="fDesde" placeholder="Desde"/>
+    <input class="fi-input" type="date" id="fHasta" placeholder="Hasta"/>
+    <select class="fi-select" id="fMetodo">
+      <option value="">Todos los métodos</option>
+      <option>Efectivo</option><option>Nequi</option><option>Daviplata</option>
+      <option>Transferencia</option><option>Tarjeta débito</option><option>Tarjeta crédito</option>
+    </select>
+    <select class="fi-select" id="fEstilista"><option value="">Todas las estilistas</option></select>
+    <button class="btn-export" onclick="cargarHistorial()">Buscar</button>
+  </div>
+  <div class="kpis" id="kHist"></div>
+  <div style="overflow-x:auto">
+    <table class="hist-table">
+      <thead><tr><th>Fecha</th><th>Hora</th><th>Cliente</th><th>Servicios</th><th>Estilista</th><th>Método</th><th style="text-align:right">Valor</th></tr></thead>
+      <tbody id="txHist"></tbody>
+    </table>
+  </div>
+  <div class="total-footer"><span class="tf-label">Total filtrado:</span><span class="tf-val" id="totalHist">$0</span></div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://leuvcsfbzzlhvyedzplj.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxldXZjc2ZienpsaHZ5ZWR6cGxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNzI4NDMsImV4cCI6MjA5MDY0ODg0M30.7kxn3mbwJRhC5t6aAwx6OPGwA6_t7pwf1ZyzW-VAY5w';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// Colombia UTC-5
+const colNow  = () => new Date(Date.now() - 5*60*60*1000);
+const HOY     = colNow().toISOString().slice(0,10);
+const MES     = HOY.slice(0,7);
+const ANO     = HOY.slice(0,4);
+const [Y,M]   = MES.split('-').map(Number);
+const ultimoDia = new Date(Date.UTC(Y,M,0)).toISOString().slice(0,10);
+
+const ICOS = {'Efectivo':'💵','Nequi':'📱','Daviplata':'📲','Transferencia':'🏦','Tarjeta débito':'💳','Tarjeta crédito':'💳'};
+const COLORES_CHART = ['#c084fc','#e879f9','#60a5fa','#4ade80','#fbbf24','#f87171','#fb923c','#a78bfa'];
+const MESES_N = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+let charts = {};
+let estilistas = [];
+let tabActual = 'dia';
+let pagosHist = [];
+
+// ── Chart.js defaults ─────────────────────────────────────────────
+Chart.defaults.color = '#6b7280';
+Chart.defaults.borderColor = 'rgba(255,255,255,0.06)';
+Chart.defaults.font.family = '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+
+window.addEventListener('load', async () => {
+  const raw = sessionStorage.getItem('salon_user');
+  if (!raw) { window.location.href='index.html'; return; }
+  const s = JSON.parse(raw);
+  if (s.rol !== 'admin' && s.rol !== 'recepcionista') { window.location.href='dashboard.html'; return; }
+
+  // Cargar estilistas para filtro
+  const { data: eData } = await sb.from('estilistas').select('id,nombre,color').order('nombre');
+  estilistas = eData || [];
+  const selEsti = document.getElementById('fEstilista');
+  estilistas.forEach(e => { const o=document.createElement('option');o.value=e.id;o.textContent=e.nombre;selEsti.appendChild(o); });
+
+  // Fechas por defecto en historial
+  document.getElementById('fDesde').value = MES+'-01';
+  document.getElementById('fHasta').value = HOY;
+
+  await cargarDia();
+});
+
+// ── Tabs ──────────────────────────────────────────────────────────
+function setTab(t) {
+  tabActual = t;
+  document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('on', el.id==='t-'+t));
+  document.querySelectorAll('.content').forEach(el=>el.classList.toggle('on', el.id==='c-'+t));
+  if (t==='dia')  cargarDia();
+  if (t==='mes')  cargarMes();
+  if (t==='ano')  cargarAno();
+  if (t==='hist') cargarHistorial();
+}
+
+// ── Helpers ───────────────────────────────────────────────────────
+function fmt(n) { return '$'+Math.round(n).toLocaleString('es-CO'); }
+function destroyChart(id) { if(charts[id]){charts[id].destroy();delete charts[id];} }
+
+function renderKPIs(containerId, items) {
+  document.getElementById(containerId).innerHTML = items.map(k=>`
+    <div class="kpi">
+      <div class="kpi-lbl">${k.label}</div>
+      <div class="kpi-val" style="color:${k.color||'#f1f0ec'}">${k.val}</div>
+      ${k.sub?`<div class="kpi-sub">${k.sub}</div>`:''}
+    </div>`).join('');
+}
+
+function renderMetodos(containerId, pagos) {
+  const por = {};
+  pagos.forEach(p=>{ if(!por[p.metodo_pago]) por[p.metodo_pago]={t:0,n:0}; por[p.metodo_pago].t+=parseFloat(p.valor_cobrado); por[p.metodo_pago].n++; });
+  const total = Object.values(por).reduce((s,x)=>s+x.t, 0);
+  document.getElementById(containerId).innerHTML = Object.entries(por).length
+    ? Object.entries(por).sort((a,b)=>b[1].t-a[1].t).map(([m,v])=>`
+        <div class="mp-card">
+          <div class="mp-ico-lbl">${ICOS[m]||'💰'} ${m}</div>
+          <div class="mp-monto">${fmt(v.t)}</div>
+          <div class="mp-cnt">${v.n} pago${v.n!==1?'s':''}</div>
+          <div class="mp-bar"><div class="mp-bar-fill" style="width:${total?Math.round(v.t/total*100):0}%"></div></div>
+        </div>`).join('')
+    : '<p style="color:#4b5563;font-size:12px">Sin pagos en este período</p>';
+}
+
+function renderEstilistas(tbodyId, pagosConCita) {
+  const por = {};
+  pagosConCita.forEach(p => {
+    const n = p.citas?.estilistas?.nombre || 'Sin asignar';
+    const col = p.citas?.estilistas?.color || '#6b7280';
+    if (!por[n]) por[n]={t:0,n:0,col};
+    por[n].t += parseFloat(p.valor_cobrado); por[n].n++;
+  });
+  const rows = Object.entries(por).sort((a,b)=>b[1].t-a[1].t);
+  document.getElementById(tbodyId).innerHTML = rows.length
+    ? rows.map(([n,v])=>`<tr><td><span class="dot" style="background:${v.col}"></span>${n}</td><td>${v.n}</td><td style="color:#4ade80;font-weight:600">${fmt(v.t)}</td></tr>`).join('')
+    : '<tr><td colspan="3" style="color:#4b5563;text-align:center;padding:20px">Sin datos</td></tr>';
+}
+
+function renderTxTable(tbodyId, pagos) {
+  const tbody = document.getElementById(tbodyId);
+  if (!pagos.length) { tbody.innerHTML=`<tr><td colspan="6" class="empty-hist">Sin transacciones</td></tr>`; return; }
+  tbody.innerHTML = pagos.map(p=>`
+    <tr>
+      <td class="td-fecha">${p.hora?.slice(0,5)||'—'}</td>
+      <td class="td-cli">${p.citas?.cliente_nombre||'—'}</td>
+      <td class="td-serv">${(p.citas?.cita_servicios||[]).map(s=>s.nombre_servicio).join(', ')||'—'}</td>
+      <td class="td-esti">${p.citas?.estilistas?.nombre||'—'}</td>
+      <td class="td-mp"><span class="mp-pill">${ICOS[p.metodo_pago]||''} ${p.metodo_pago}</span></td>
+      <td class="td-val">${fmt(p.valor_cobrado)}</td>
+    </tr>`).join('');
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TAB HOY
+// ─────────────────────────────────────────────────────────────────
+async function cargarDia() {
+  const { data: pagos } = await sb.from('pagos')
+    .select('*,citas(cliente_nombre,cita_servicios(nombre_servicio),estilistas(nombre,color))')
+    .eq('fecha', HOY).order('hora');
+
+  const P = pagos||[];
+  const total   = P.reduce((s,p)=>s+parseFloat(p.valor_cobrado),0);
+  const totalS  = P.reduce((s,p)=>s+parseFloat(p.total_servicios),0);
+  const dif     = total - totalS;
+
+  renderKPIs('kDia',[
+    {label:'Total recaudado hoy', val:fmt(total), color:'#4ade80'},
+    {label:'N° transacciones',    val:P.length,   color:'#60a5fa'},
+    {label:'Precio lista',        val:fmt(totalS),color:'#a78bfa', sub:'sin ajustes'},
+    {label:'Ajuste precio',       val:(dif>=0?'+':'')+fmt(dif), color:dif<0?'#f87171':'#fbbf24', sub:'diferencia cobrada'}
+  ]);
+
+  renderMetodos('mpDia', P);
+  renderEstilistas('estiDia', P);
+
+  // Tabla
+  renderTxTable('txDia', P);
+
+  // Gráfica: ingresos por hora
+  destroyChart('chartHoras');
+  const porHora = {};
+  P.forEach(p=>{ const h=(p.hora||'00').slice(0,2)+':00'; if(!porHora[h]) porHora[h]=0; porHora[h]+=parseFloat(p.valor_cobrado); });
+  const hLabels = Object.keys(porHora).sort();
+  charts['chartHoras'] = new Chart(document.getElementById('chartHoras'),{
+    type:'bar',
+    data:{labels:hLabels, datasets:[{label:'Ingresos',data:hLabels.map(h=>porHora[h]),backgroundColor:'rgba(192,132,252,0.6)',borderColor:'#c084fc',borderWidth:1,borderRadius:4}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>'$'+v.toLocaleString('es-CO')}}}}
+  });
+
+  // Gráfica: torta métodos pago
+  destroyChart('chartMpDia');
+  const por={};P.forEach(p=>{if(!por[p.metodo_pago])por[p.metodo_pago]=0;por[p.metodo_pago]+=parseFloat(p.valor_cobrado);});
+  if(Object.keys(por).length>0){
+    charts['chartMpDia']=new Chart(document.getElementById('chartMpDia'),{
+      type:'doughnut',
+      data:{labels:Object.keys(por),datasets:[{data:Object.values(por),backgroundColor:COLORES_CHART,borderWidth:2,borderColor:'#13131f'}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{boxWidth:10,padding:12}}}}
+    });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TAB MES
+// ─────────────────────────────────────────────────────────────────
+async function cargarMes() {
+  const { data: pagos } = await sb.from('pagos')
+    .select('*,citas(cliente_nombre,cita_servicios(nombre_servicio),estilistas(nombre,color))')
+    .gte('fecha', MES+'-01').lte('fecha', ultimoDia).order('fecha');
+
+  const P = pagos||[];
+  const total = P.reduce((s,p)=>s+parseFloat(p.valor_cobrado),0);
+  const diasCon = [...new Set(P.map(p=>p.fecha))].length;
+  const promDia = diasCon ? total/diasCon : 0;
+
+  renderKPIs('kMes',[
+    {label:`Total ${MESES_N[M-1]}`,  val:fmt(total),         color:'#4ade80'},
+    {label:'Transacciones',           val:P.length,           color:'#60a5fa'},
+    {label:'Días con ingresos',       val:diasCon,            color:'#a78bfa'},
+    {label:'Promedio por día',        val:fmt(promDia),       color:'#fbbf24'}
+  ]);
+
+  renderMetodos('mpMes', P);
+  renderEstilistas('estiMes', P);
+
+  // Gráfica: ingresos por día
+  destroyChart('chartDias');
+  const porDia = {};
+  P.forEach(p=>{ if(!porDia[p.fecha]) porDia[p.fecha]=0; porDia[p.fecha]+=parseFloat(p.valor_cobrado); });
+  const dLabels = Object.keys(porDia).sort();
+  charts['chartDias']=new Chart(document.getElementById('chartDias'),{
+    type:'line',
+    data:{labels:dLabels.map(d=>d.slice(8)), datasets:[{label:'Ingresos',data:dLabels.map(d=>porDia[d]),borderColor:'#c084fc',backgroundColor:'rgba(192,132,252,0.1)',fill:true,tension:.35,pointRadius:3,pointBackgroundColor:'#c084fc'}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>'$'+v.toLocaleString('es-CO')}}}}
+  });
+
+  // Torta métodos
+  destroyChart('chartMpMes');
+  const por={};P.forEach(p=>{if(!por[p.metodo_pago])por[p.metodo_pago]=0;por[p.metodo_pago]+=parseFloat(p.valor_cobrado);});
+  if(Object.keys(por).length>0){
+    charts['chartMpMes']=new Chart(document.getElementById('chartMpMes'),{
+      type:'doughnut',
+      data:{labels:Object.keys(por),datasets:[{data:Object.values(por),backgroundColor:COLORES_CHART,borderWidth:2,borderColor:'#13131f'}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{boxWidth:10,padding:12}}}}
+    });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TAB AÑO
+// ─────────────────────────────────────────────────────────────────
+async function cargarAno() {
+  document.getElementById('anoLabel').textContent = ANO;
+  const { data: pagos } = await sb.from('pagos')
+    .select('*,citas(estilistas(nombre,color))')
+    .gte('fecha', ANO+'-01-01').lte('fecha', ANO+'-12-31');
+
+  const P = pagos||[];
+  const total = P.reduce((s,p)=>s+parseFloat(p.valor_cobrado),0);
+  const mesMax = (() => {
+    const pm={};P.forEach(p=>{const m=p.fecha.slice(0,7);if(!pm[m])pm[m]=0;pm[m]+=parseFloat(p.valor_cobrado);});
+    const e=Object.entries(pm).sort((a,b)=>b[1]-a[1])[0];
+    return e?MESES_N[parseInt(e[0].split('-')[1])-1]:'—';
+  })();
+
+  renderKPIs('kAno',[
+    {label:`Total ${ANO}`,          val:fmt(total),   color:'#4ade80'},
+    {label:'Transacciones año',      val:P.length,     color:'#60a5fa'},
+    {label:'Mejor mes',              val:mesMax,       color:'#a78bfa'},
+    {label:'Promedio mensual',       val:fmt(total/12),color:'#fbbf24'}
+  ]);
+
+  // Barras mensuales
+  destroyChart('chartMeses');
+  const pm={};P.forEach(p=>{const m=p.fecha.slice(5,7);if(!pm[m])pm[m]=0;pm[m]+=parseFloat(p.valor_cobrado);});
+  charts['chartMeses']=new Chart(document.getElementById('chartMeses'),{
+    type:'bar',
+    data:{
+      labels:MESES_N,
+      datasets:[{label:'Ingresos',data:MESES_N.map((_,i)=>pm[String(i+1).padStart(2,'0')]||0),backgroundColor:MESES_N.map((_,i)=>parseInt(ANO+String(i+1).padStart(2,'0'))<=parseInt(MES.replace('-',''))?'rgba(192,132,252,0.7)':'rgba(255,255,255,0.07)'),borderColor:MESES_N.map((_,i)=>parseInt(ANO+String(i+1).padStart(2,'0'))<=parseInt(MES.replace('-',''))?'#c084fc':'rgba(255,255,255,0.1)'),borderWidth:1,borderRadius:5}]
+    },
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>'$'+v.toLocaleString('es-CO')}}}}
+  });
+
+  // Torta métodos año
+  destroyChart('chartMpAno');
+  const por={};P.forEach(p=>{if(!por[p.metodo_pago])por[p.metodo_pago]=0;por[p.metodo_pago]+=parseFloat(p.valor_cobrado);});
+  if(Object.keys(por).length>0){
+    charts['chartMpAno']=new Chart(document.getElementById('chartMpAno'),{
+      type:'doughnut',
+      data:{labels:Object.keys(por),datasets:[{data:Object.values(por),backgroundColor:COLORES_CHART,borderWidth:2,borderColor:'#13131f'}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{boxWidth:10,padding:12}}}}
+    });
+  }
+
+  // Barras por estilista año
+  destroyChart('chartEstiAno');
+  const pe={};P.forEach(p=>{const n=p.citas?.estilistas?.nombre||'Otros';if(!pe[n])pe[n]=0;pe[n]+=parseFloat(p.valor_cobrado);});
+  const eEntries=Object.entries(pe).sort((a,b)=>b[1]-a[1]);
+  charts['chartEstiAno']=new Chart(document.getElementById('chartEstiAno'),{
+    type:'bar',
+    data:{labels:eEntries.map(e=>e[0]),datasets:[{label:'Ingresos',data:eEntries.map(e=>e[1]),backgroundColor:eEntries.map((_,i)=>COLORES_CHART[i%COLORES_CHART.length]),borderRadius:5}]},
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{ticks:{callback:v=>'$'+v.toLocaleString('es-CO')}}}}
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TAB HISTORIAL
+// ─────────────────────────────────────────────────────────────────
+async function cargarHistorial() {
+  const desde  = document.getElementById('fDesde').value;
+  const hasta  = document.getElementById('fHasta').value;
+  const metodo = document.getElementById('fMetodo').value;
+  const estiId = document.getElementById('fEstilista').value;
+
+  let q = sb.from('pagos')
+    .select('*,citas(cliente_nombre,cita_servicios(nombre_servicio),estilistas(nombre,color))')
+    .order('fecha',{ascending:false}).order('hora',{ascending:false}).limit(500);
+
+  if (desde) q = q.gte('fecha', desde);
+  if (hasta) q = q.lte('fecha', hasta);
+  if (metodo) q = q.eq('metodo_pago', metodo);
+
+  const { data: pagos } = await q;
+  let P = pagos || [];
+
+  // Filtro por estilista (en cliente side porque es join)
+  if (estiId) P = P.filter(p => p.citas?.estilistas && estilistas.find(e=>e.id==estiId)?.nombre === p.citas.estilistas.nombre);
+
+  pagosHist = P;
+  const total = P.reduce((s,p)=>s+parseFloat(p.valor_cobrado),0);
+  const diasUnicos = [...new Set(P.map(p=>p.fecha))].length;
+
+  renderKPIs('kHist',[
+    {label:'Total período',     val:fmt(total),   color:'#4ade80'},
+    {label:'Transacciones',     val:P.length,     color:'#60a5fa'},
+    {label:'Días con cobros',   val:diasUnicos,   color:'#a78bfa'},
+    {label:'Ticket promedio',   val:P.length?fmt(total/P.length):'$0', color:'#fbbf24'}
+  ]);
+
+  document.getElementById('totalHist').textContent = fmt(total);
+
+  // Tabla completa
+  const tbody = document.getElementById('txHist');
+  if (!P.length) { tbody.innerHTML=`<tr><td colspan="7" class="empty-hist">Sin transacciones en el período</td></tr>`; return; }
+  tbody.innerHTML = P.map(p=>`
+    <tr>
+      <td class="td-fecha">${p.fecha}</td>
+      <td class="td-fecha">${p.hora?.slice(0,5)||'—'}</td>
+      <td class="td-cli">${p.citas?.cliente_nombre||'—'}</td>
+      <td class="td-serv">${(p.citas?.cita_servicios||[]).map(s=>s.nombre_servicio).join(', ')||'—'}</td>
+      <td class="td-esti">${p.citas?.estilistas?.nombre||'—'}</td>
+      <td class="td-mp"><span class="mp-pill">${ICOS[p.metodo_pago]||''} ${p.metodo_pago}</span></td>
+      <td class="td-val">${fmt(p.valor_cobrado)}</td>
+    </tr>`).join('');
+}
+
+// ── Exportar CSV ──────────────────────────────────────────────────
+function exportarCSV() {
+  const P = pagosHist.length ? pagosHist : [];
+  if (!P.length) { alert('Primero ve al tab Historial y haz una búsqueda.'); return; }
+  const enc = s => '"' + String(s||'').replace(/"/g,'""') + '"';
+  const cab = ['Fecha','Hora','Cliente','Servicios','Estilista','Metodo_pago','Valor_cobrado','Total_servicios'];
+  const filas = P.map(p=>[
+    p.fecha, p.hora?.slice(0,5)||'',
+    p.citas?.cliente_nombre||'',
+    (p.citas?.cita_servicios||[]).map(s=>s.nombre_servicio).join(' | '),
+    p.citas?.estilistas?.nombre||'',
+    p.metodo_pago,
+    p.valor_cobrado,
+    p.total_servicios
+  ].map(enc).join(','));
+  const csv = [cab.join(','), ...filas].join('\n');
+  const blob = new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=`finanzas_salon_${HOY}.csv`; a.click();
+}
+</script>
+</body>
+</html>
