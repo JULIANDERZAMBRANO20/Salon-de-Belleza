@@ -454,7 +454,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       .eq('estilista_id', estiId).eq('fecha', fecha)
       .in('estado', ['pendiente','confirmada','en_proceso']);
     const conflicto = (data||[]).some(c => hIni < c.hora_fin && hFin > c.hora_inicio);
-    if (conflicto) warnCita.style.display = 'block';
+    if (conflicto) {
+      warnCita.style.display = 'block';
+      btn.disabled = true; // ← BLOQUEAR botón, no solo mostrar aviso
+    }
   }
   // alias for backward compat calls
   const verificarConflicto = verificarDisponibilidad;
@@ -484,12 +487,28 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     const finC = new Date(2000,0,1,hhC,mmC+totalMinCheck);
     const hFinC = String(finC.getHours()).padStart(2,'0')+':'+String(finC.getMinutes()).padStart(2,'0');
     const estaBloqueado = (bloqCheck||[]).some(b =>
-      b.todo_el_dia !== false ||
+      b.todo_el_dia === true ||
       (b.hora_inicio && hIni < (b.hora_fin||'23:59').slice(0,5) && hFinC > b.hora_inicio.slice(0,5))
     );
     if (estaBloqueado) {
       const mot = bloqCheck[0]?.motivo || 'inhabilitada';
       toast(`🚫 La estilista no está disponible: ${mot}`, 'error');
+      return;
+    }
+
+    // Verificación final de conflicto con citas existentes (doble seguro)
+    const totalMinFinal = items.reduce((s,[,x])=>s+x.duracion_min, 0) || 60;
+    const [hhF2,mmF2] = hIni.split(':').map(Number);
+    const finF2 = new Date(2000,0,1,hhF2,mmF2+totalMinFinal);
+    const hFinF2 = String(finF2.getHours()).padStart(2,'0')+':'+String(finF2.getMinutes()).padStart(2,'0');
+    const { data: citasConflicto } = await sb.from('citas')
+      .select('id,hora_inicio,hora_fin,cliente_nombre')
+      .eq('estilista_id', estiId).eq('fecha', fecha)
+      .in('estado', ['pendiente','confirmada','en_proceso']);
+    const hayConflicto = (citasConflicto||[]).some(c => hIni < c.hora_fin && hFinF2 > c.hora_inicio);
+    if (hayConflicto) {
+      const cx = (citasConflicto||[]).find(c => hIni < c.hora_fin && hFinF2 > c.hora_inicio);
+      toast(`⚠️ Horario ocupado — ya hay cita con ${cx?.cliente_nombre||'otro cliente'} a las ${cx?.hora_inicio?.slice(0,5)}`, 'error');
       return;
     }
 
