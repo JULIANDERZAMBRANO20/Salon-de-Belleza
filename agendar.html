@@ -140,6 +140,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     </div>
 
     <div class="conflict-warn" id="conflictWarn">⚠️ Esta estilista ya tiene una cita en ese horario</div>
+    <div class="conflict-warn" id="bloqueoWarn" style="background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.3)">🚫 Esta estilista está inhabilitada en esa fecha</div>
 
     <!-- Servicios seleccionados -->
     <div class="fl" style="margin-top:4px">Servicios seleccionados</div>
@@ -269,9 +270,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       opt.textContent = e.nombre + (e.especialidad ? ` — ${e.especialidad}` : '');
       sel.appendChild(opt);
     });
-    sel.addEventListener('change', verificarConflicto);
-    document.getElementById('fecha').addEventListener('change', verificarConflicto);
-    document.getElementById('horaInicio').addEventListener('change', verificarConflicto);
+    sel.addEventListener('change', verificarDisponibilidad);
+    document.getElementById('fecha').addEventListener('change', verificarDisponibilidad);
+    document.getElementById('horaInicio').addEventListener('change', verificarDisponibilidad);
   }
 
   async function cargarMetodos() {
@@ -417,23 +418,46 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     actualizarTotal();
   }
 
-  async function verificarConflicto() {
+  async function verificarDisponibilidad() {
     const estiId = document.getElementById('estilista').value;
     const fecha  = document.getElementById('fecha').value;
     const hIni   = document.getElementById('horaInicio').value;
-    const warn   = document.getElementById('conflictWarn');
-    warn.style.display = 'none';
+    const warnCita  = document.getElementById('conflictWarn');
+    const warnBloq  = document.getElementById('bloqueoWarn');
+    warnCita.style.display = 'none';
+    warnBloq.style.display = 'none';
+    const btn = document.getElementById('btnGuardar');
+    btn.disabled = false;
     if (!estiId || !fecha || !hIni) return;
+
     const totalMin = Object.values(serviciosSeleccionados).reduce((s,x)=>s+x.duracion_min, 60);
     const [hh,mm] = hIni.split(':').map(Number);
-    const finDate = new Date(2000,0,1,hh,mm+totalMin);
-    const hFin = String(finDate.getHours()).padStart(2,'0')+':'+String(finDate.getMinutes()).padStart(2,'0');
+    const finDate  = new Date(2000,0,1,hh,mm+totalMin);
+    const hFin     = String(finDate.getHours()).padStart(2,'0')+':'+String(finDate.getMinutes()).padStart(2,'0');
+
+    // Verificar bloqueos
+    const { data: bloqs } = await sb.from('bloqueos_horario')
+      .select('*').eq('fecha', fecha)
+      .or(`estilista_id.eq.${estiId},estilista_id.is.null`);
+    const bloqueado = (bloqs||[]).some(b =>
+      b.todo_el_dia ||
+      (b.hora_inicio && hIni < (b.hora_fin||'23:59').slice(0,5) && hFin > b.hora_inicio.slice(0,5))
+    );
+    if (bloqueado) {
+      warnBloq.style.display = 'block';
+      btn.disabled = true;
+      return;
+    }
+
+    // Verificar conflictos con otras citas
     const { data } = await sb.from('citas').select('id,hora_inicio,hora_fin')
       .eq('estilista_id', estiId).eq('fecha', fecha)
       .in('estado', ['pendiente','confirmada','en_proceso']);
     const conflicto = (data||[]).some(c => hIni < c.hora_fin && hFin > c.hora_inicio);
-    if (conflicto) warn.style.display = 'block';
+    if (conflicto) warnCita.style.display = 'block';
   }
+  // alias for backward compat calls
+  const verificarConflicto = verificarDisponibilidad;
 
   async function guardarCita() {
     const clienteNombre = document.getElementById('clienteInput').value.trim();
@@ -450,6 +474,24 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     if (!fecha || !hIni)   { toast('⚠️ Selecciona fecha y hora', 'error'); return; }
     if (items.length === 0){ toast('⚠️ Selecciona al menos un servicio', 'error'); return; }
     if (!metodoPago && (estado === 'completada')) { toast('⚠️ Selecciona el método de pago', 'error'); return; }
+
+    // Verificación final de bloqueo antes de guardar
+    const { data: bloqCheck } = await sb.from('bloqueos_horario')
+      .select('motivo').eq('fecha', fecha)
+      .or(`estilista_id.eq.${estiId},estilista_id.is.null`);
+    const totalMinCheck = items.reduce((s,[,x])=>s+x.duracion_min, 0) || 60;
+    const [hhC,mmC] = hIni.split(':').map(Number);
+    const finC = new Date(2000,0,1,hhC,mmC+totalMinCheck);
+    const hFinC = String(finC.getHours()).padStart(2,'0')+':'+String(finC.getMinutes()).padStart(2,'0');
+    const estaBloqueado = (bloqCheck||[]).some(b =>
+      b.todo_el_dia !== false ||
+      (b.hora_inicio && hIni < (b.hora_fin||'23:59').slice(0,5) && hFinC > b.hora_inicio.slice(0,5))
+    );
+    if (estaBloqueado) {
+      const mot = bloqCheck[0]?.motivo || 'inhabilitada';
+      toast(`🚫 La estilista no está disponible: ${mot}`, 'error');
+      return;
+    }
 
     const totalMin = items.reduce((s,[,x])=>s+x.duracion_min, 0) || 60;
     const [hh,mm]  = hIni.split(':').map(Number);
