@@ -135,7 +135,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
   let session = null;
-  let fechaActual = new Date();
+  // Fecha Colombia UTC-5
+  function hoyColombia() { return new Date(Date.now() - 5 * 60 * 60 * 1000); }
+  let fechaActual = hoyColombia();
   let estilistas = [];
   let citas = [];
   let filtroEstilista = 'todos';
@@ -194,12 +196,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   }
 
   function cambiarDia(delta) {
-    fechaActual.setDate(fechaActual.getDate() + delta);
+    fechaActual.setUTCDate(fechaActual.getUTCDate() + delta); // navegar con UTC para no perder dia
     cargarYRenderizar();
   }
 
   function irHoy() {
-    fechaActual = new Date();
+    fechaActual = hoyColombia();
     cargarYRenderizar();
   }
 
@@ -207,7 +209,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     const fStr = fechaStr(fechaActual);
     const dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
     const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
-    document.getElementById('fechaLabel').textContent = `${dias[fechaActual.getDay()]} ${fechaActual.getDate()} ${meses[fechaActual.getMonth()]}`;
+    document.getElementById('fechaLabel').textContent = `${dias[fechaActual.getUTCDay()]} ${fechaActual.getUTCDate()} ${meses[fechaActual.getUTCMonth()]}`;
 
     document.getElementById('loadingOverlay').classList.add('show');
     const { data } = await sb.from('citas').select(`*,cita_servicios(nombre_servicio,precio_unitario),estilistas(nombre,color)`)
@@ -314,8 +316,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     if (!metodoPagoModal) { toast('Selecciona el método de pago', 'error'); return; }
     const valor = parseFloat(document.getElementById('valorCobrado').value) || 0;
     const totalServ = (citaActual.cita_servicios||[]).reduce((s,x)=>s+parseFloat(x.precio_unitario),0);
-    const ahora = new Date();
-    const hora = String(ahora.getHours()).padStart(2,'0')+':'+String(ahora.getMinutes()).padStart(2,'0');
+    const hora = new Date(Date.now() - 5*60*60*1000).toISOString().slice(11,16); // hora Colombia
     await sb.from('pagos').insert({
       cita_id: citaActual.id, total_servicios: totalServ, valor_cobrado: valor,
       metodo_pago: metodoPagoModal, registrado_por: session.usuario,
@@ -342,7 +343,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     return {pendiente:'Pendiente',confirmada:'Confirmada',en_proceso:'En proceso',completada:'Completada',cancelada:'Cancelada',no_show:'No asistió'}[e]||e;
   }
 
-  function fechaStr(d) { return d.toISOString().slice(0,10); }
+  // fechaStr: usa getUTC* porque hoyColombia() ya restó 5h, así UTC = hora Colombia
+  function fechaStr(d) {
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth()+1).padStart(2,'0');
+    const dd= String(d.getUTCDate()).padStart(2,'0');
+    return `${y}-${m}-${dd}`;
+  }
 
   function toast(msg, tipo='success') {
     const t=document.getElementById('toast');
