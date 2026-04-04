@@ -159,7 +159,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     session = JSON.parse(raw);
     document.getElementById('userName').textContent    = session.nombre;
     document.getElementById('userInitial').textContent = session.nombre.charAt(0).toUpperCase();
-    if (session.rol === 'admin') document.getElementById('linkAdmin').style.display = 'flex';
+    if (session.rol === 'admin') {
+      document.getElementById('linkAdmin').style.display = 'flex';
+      document.getElementById('linkFinanzas').style.display = 'flex';
+    }
     await cargarHoy();
   });
 
