@@ -130,7 +130,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   let serviciosCatalogo = [];
   let estilistas = [];
   let horaSeleccionada = null;
-  let HORARIOS = ['09:00','09:30','10:00','10:30','11:00','11:30','12:00','12:30','13:00','13:30','14:00','14:30','15:00','15:30','16:00','16:30','17:00','17:30','18:00'];
+  // HORARIOS ahora se generan dinámicamente desde configuracion del salón en cargarDisponibilidad()
 
   window.addEventListener('load', async () => {
     // Fecha Colombia UTC-5
@@ -186,27 +186,107 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   }
 
   async function cargarDisponibilidad() {
-    const fecha = document.getElementById('fechaOnline').value;
+    const fecha  = document.getElementById('fechaOnline').value;
     const estiId = document.getElementById('estilistaOnline').value;
-    const grid = document.getElementById('slotsGrid');
+    const grid   = document.getElementById('slotsGrid');
     if (!fecha) return;
-    const totalMin = Object.values(serviciosSeleccionados).reduce((s,x)=>s+x.duracion_min,60);
-    let query = sb.from('citas').select('hora_inicio,hora_fin,estilista_id').eq('fecha',fecha).in('estado',['pendiente','confirmada','en_proceso']);
-    if (estiId) query = query.eq('estilista_id',estiId);
-    const { data: citasExistentes } = await query;
-    grid.innerHTML = '';
+
+    grid.innerHTML = '<div style="color:#6b7280;font-size:12px;padding:4px">Verificando disponibilidad...</div>';
     horaSeleccionada = null;
-    HORARIOS.forEach(h => {
+
+    const totalMin = Object.values(serviciosSeleccionados).reduce((s,x)=>s+x.duracion_min, 60);
+
+    // Cargar en paralelo: horario salón, bloqueos, citas del día
+    const [resConfig, resBloq, resCitas] = await Promise.all([
+      sb.from('configuracion').select('clave,valor').in('clave',['hora_apertura','hora_cierre']),
+      sb.from('bloqueos_horario').select('*').eq('fecha', fecha),
+      sb.from('citas').select('hora_inicio,hora_fin,estilista_id')
+        .eq('fecha', fecha).in('estado',['pendiente','confirmada','en_proceso'])
+    ]);
+
+    // Aplicar horario del salón
+    let ap = 8, ci = 20;
+    (resConfig.data||[]).forEach(r => {
+      if (r.clave==='hora_apertura') ap = parseInt(r.valor);
+      if (r.clave==='hora_cierre')   ci = parseInt(r.valor);
+    });
+
+    // Generar slots cada 30 min dentro del horario del salón
+    const slots = [];
+    for (let h = ap; h < ci; h++) {
+      slots.push(String(h).padStart(2,'0')+':00');
+      slots.push(String(h).padStart(2,'0')+':30');
+    }
+
+    const bloqs   = resBloq.data   || [];
+    const citasEx = resCitas.data  || [];
+
+    grid.innerHTML = '';
+
+    // Si la estilista elegida está completamente bloqueada ese día, mostrar aviso
+    if (estiId) {
+      const bloqTotal = bloqs.find(b =>
+        (b.estilista_id == estiId || b.estilista_id === null) && b.todo_el_dia
+      );
+      if (bloqTotal) {
+        grid.innerHTML = `<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:10px 14px;font-size:12px;color:#f87171;grid-column:1/-1">🚫 ${bloqTotal.motivo||'No disponible'} — Selecciona otra fecha o estilista</div>`;
+        actualizarResumen();
+        return;
+      }
+    }
+
+    let haySlots = false;
+    slots.forEach(h => {
       const [hh,mm] = h.split(':').map(Number);
-      const finDate = new Date(2000,0,1,hh,mm+totalMin);
+      const finDate  = new Date(2000,0,1,hh,mm+totalMin);
+      // No mostrar slots que terminarían fuera del horario de cierre
+      if (finDate.getHours() > ci || (finDate.getHours() === ci && finDate.getMinutes() > 0)) return;
       const hFin = String(finDate.getHours()).padStart(2,'0')+':'+String(finDate.getMinutes()).padStart(2,'0');
-      const ocupado = (citasExistentes||[]).some(c => h < c.hora_fin && hFin > c.hora_inicio);
+
+      // Verificar bloqueo del slot
+      let bloqueadoPorBloq = false;
+      bloqs.forEach(b => {
+        // Si aplica a esta estilista (o a todas)
+        const aplicaEstilista = !estiId || b.estilista_id === null || b.estilista_id == estiId;
+        if (!aplicaEstilista) return;
+        if (b.todo_el_dia) { bloqueadoPorBloq = true; return; }
+        if (b.hora_inicio && h < (b.hora_fin||'23:59').slice(0,5) && hFin > b.hora_inicio.slice(0,5)) bloqueadoPorBloq = true;
+      });
+
+      // Verificar conflicto con citas existentes
+      let citasConflicto;
+      if (estiId) {
+        citasConflicto = citasEx.filter(c => c.estilista_id == estiId);
+      } else {
+        // Sin estilista específica: verificar si TODAS están ocupadas/bloqueadas
+        citasConflicto = citasEx; // se maneja abajo
+      }
+      const ocupado = citasConflicto.some(c => h < c.hora_fin && hFin > c.hora_inicio);
+
       const btn = document.createElement('div');
-      btn.className = 'slot-btn' + (ocupado ? ' ocupado' : '');
-      btn.textContent = h;
-      if (!ocupado) btn.onclick = () => seleccionarSlot(h, btn);
+      if (bloqueadoPorBloq) {
+        btn.className = 'slot-btn ocupado';
+        btn.textContent = h;
+        btn.title = 'Bloqueado';
+      } else if (ocupado) {
+        btn.className = 'slot-btn ocupado';
+        btn.textContent = h;
+        btn.title = 'Ocupado';
+      } else {
+        btn.className = 'slot-btn';
+        btn.textContent = h;
+        btn.onclick = () => seleccionarSlot(h, btn);
+        haySlots = true;
+      }
       grid.appendChild(btn);
     });
+
+    if (!haySlots && grid.children.length > 0) {
+      const aviso = document.createElement('div');
+      aviso.style.cssText = 'grid-column:1/-1;font-size:12px;color:#f87171;padding:8px 4px';
+      aviso.textContent = 'Sin horarios disponibles para esta fecha. Prueba otro día.';
+      grid.appendChild(aviso);
+    }
     actualizarResumen();
   }
 
@@ -259,9 +339,29 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       const { data: citasOcupadas } = await sb.from('citas').select('estilista_id')
         .eq('fecha',fecha).in('estado',['pendiente','confirmada','en_proceso'])
         .gte('hora_inicio',horaSeleccionada).lt('hora_fin',hFin);
+      const { data: bloqueosDia } = await sb.from('bloqueos_horario').select('estilista_id,todo_el_dia,hora_inicio,hora_fin').eq('fecha',fecha);
       const ocupadosIds = (citasOcupadas||[]).map(c=>c.estilista_id);
-      const libre = (disponibles||[]).find(e=>!ocupadosIds.includes(e.id));
+      // Filtrar estilistas bloqueadas ese día/hora
+      const bloqueadasIds = (bloqueosDia||[]).filter(b => {
+        if (b.todo_el_dia) return true;
+        if (b.hora_inicio) return horaSeleccionada < (b.hora_fin||'23:59').slice(0,5) && hFin > b.hora_inicio.slice(0,5);
+        return false;
+      }).map(b=>b.estilista_id);
+      const libre = (disponibles||[]).find(e => !ocupadosIds.includes(e.id) && !bloqueadasIds.includes(e.id) && !bloqueadasIds.includes(null));
       estiAsignado = libre?.id || null;
+    } else {
+      // Verificar que la estilista elegida no esté bloqueada
+      const { data: bloqCheck } = await sb.from('bloqueos_horario').select('motivo')
+        .eq('fecha',fecha).or(`estilista_id.eq.${estiAsignado},estilista_id.is.null`);
+      const estaBloq = (bloqCheck||[]).some(b =>
+        b.todo_el_dia !== false ||
+        (b.hora_inicio && horaSeleccionada < (b.hora_fin||'23:59').slice(0,5) && hFin > b.hora_inicio.slice(0,5))
+      );
+      if (estaBloq) {
+        alert('Esta estilista no está disponible en esa fecha. Por favor selecciona otra.');
+        btn.disabled=false; document.getElementById('spinnerConfirmar').style.display='none'; document.getElementById('textoConfirmar').style.display='block';
+        return;
+      }
     }
     const btn = document.getElementById('btnConfirmar');
     btn.disabled=true;
