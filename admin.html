@@ -269,7 +269,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   async function toggleEstilista(id,actual) { await sb.from('estilistas').update({activo:!actual}).eq('id',id); await cargarEstilistas(); }
 
   async function pagarLicencia(id) {
-    await sb.from('licencias').update({pagada:true,pagada_en:new Date().toISOString()}).eq('id',id);
+    await sb.from('licencias').update({pagada:true,pagada_en:new Date(Date.now()-5*60*60*1000).toISOString()}).eq('id',id);
     toast('✦ Licencia marcada como pagada','success');
     await cargarLicencias();
   }
