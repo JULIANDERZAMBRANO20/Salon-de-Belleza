@@ -186,110 +186,138 @@ const SUPABASE_URL = 'https://leuvcsfbzzlhvyedzplj.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxldXZjc2ZienpsaHZ5ZWR6cGxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNzI4NDMsImV4cCI6MjA5MDY0ODg0M30.7kxn3mbwJRhC5t6aAwx6OPGwA6_t7pwf1ZyzW-VAY5w';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// Colombia UTC-5
-const colNow  = () => new Date(Date.now() - 5*60*60*1000);
-const HOY     = colNow().toISOString().slice(0,10);
-const MES     = HOY.slice(0,7);
-const ANO     = HOY.slice(0,4);
-const [Y,M]   = MES.split('-').map(Number);
+// ── Zona horaria Colombia (UTC-5) ─────────────────────────────────
+const colNow    = () => new Date(Date.now() - 5*60*60*1000);
+const HOY       = colNow().toISOString().slice(0,10);
+const MES       = HOY.slice(0,7);
+const ANO       = HOY.slice(0,4);
+const [Y,M]     = MES.split('-').map(Number);
 const ultimoDia = new Date(Date.UTC(Y,M,0)).toISOString().slice(0,10);
 
-const ICOS = {'Efectivo':'💵','Nequi':'📱','Daviplata':'📲','Transferencia':'🏦','Tarjeta débito':'💳','Tarjeta crédito':'💳'};
-const COLORES_CHART = ['#c084fc','#e879f9','#60a5fa','#4ade80','#fbbf24','#f87171','#fb923c','#a78bfa'];
-const MESES_N = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-
-let charts = {};
-let estilistas = [];
-let tabActual = 'dia';
-let pagosHist = [];
-
-// ── Unificar pagos + abonos en un solo array normalizado ─────────
-async function cargarMovimientos(filtros={}) {
-  const { desde, hasta, metodo, estiId } = filtros;
-
-  // Query pagos
-  let qPagos = sb.from('pagos')
-    .select('id,fecha,hora,valor_cobrado,metodo_pago,cita_id,citas(cliente_nombre,cita_servicios(nombre_servicio),estilistas(nombre,color))');
-  if (desde)  qPagos = qPagos.gte('fecha', desde);
-  if (hasta)  qPagos = qPagos.lte('fecha', hasta);
-  if (metodo) qPagos = qPagos.eq('metodo_pago', metodo);
-
-  // Query abonos — envuelto en try/catch por si la tabla aún no existe
-  let movAbonos = [];
-  try {
-    let qAbonos = sb.from('abonos')
-      .select('id,fecha,hora,valor,metodo_pago,cita_id,citas(cliente_nombre,cita_servicios(nombre_servicio),estilistas(nombre,color))');
-    if (desde)  qAbonos = qAbonos.gte('fecha', desde);
-    if (hasta)  qAbonos = qAbonos.lte('fecha', hasta);
-    if (metodo) qAbonos = qAbonos.eq('metodo_pago', metodo);
-    const resAbonos = await qAbonos;
-    movAbonos = (resAbonos.data||[]).map(a => ({
-      id: 'a'+a.id, fecha: a.fecha, hora: a.hora||'00:00',
-      valor: parseFloat(a.valor)||0,
-      metodo_pago: a.metodo_pago,
-      tipo: 'abono',
-      cita_id: a.cita_id,
-      citas: a.citas
-    }));
-  } catch(e) { console.warn('abonos no disponibles:', e); }
-
-  // Normalizar pagos
-  const resPagos = await qPagos;
-  let movPagos = (resPagos.data||[]).map(p => ({
-    id: 'p'+p.id, fecha: p.fecha, hora: p.hora||'00:00',
-    valor: parseFloat(p.valor_cobrado)||0,
-    metodo_pago: p.metodo_pago,
-    tipo: 'pago',
-    cita_id: p.cita_id,
-    citas: p.citas
-  }));
-
-  // Combinar
-  let todos = [...movPagos, ...movAbonos];
-
-  // Filtro por estilista
-  if (estiId) {
-    const nombre = estilistas.find(e=>e.id==estiId)?.nombre;
-    if (nombre) todos = todos.filter(m => m.citas?.estilistas?.nombre === nombre);
-  }
-
-  // Ordenar fecha desc, hora desc
-  todos.sort((a,b) => {
-    const fc = b.fecha.localeCompare(a.fecha);
-    if (fc !== 0) return fc;
-    return (b.hora||'').localeCompare(a.hora||'');
-  });
-
-  return todos;
-}
-
-// ── Chart.js defaults ─────────────────────────────────────────────
+const ICOS        = {'Efectivo':'💵','Nequi':'📱','Daviplata':'📲','Transferencia':'🏦','Tarjeta débito':'💳','Tarjeta crédito':'💳'};
+const COLORES     = ['#c084fc','#e879f9','#60a5fa','#4ade80','#fbbf24','#f87171','#fb923c','#a78bfa'];
+const MESES_N     = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 Chart.defaults.color = '#6b7280';
 Chart.defaults.borderColor = 'rgba(255,255,255,0.06)';
 Chart.defaults.font.family = '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
 
+let charts = {}, estilistas = [], pagosHist = [];
+
+// ── Cargar movimientos: pagos + abonos unificados ─────────────────
+// Devuelve array con: {fecha, hora, valor, metodo_pago, tipo, citas}
+async function cargarMovimientos(desde, hasta, metodo, estiNombre) {
+  // ─ Pagos ─
+  let qP = sb.from('pagos')
+    .select('id,fecha,hora,valor_cobrado,metodo_pago,cita_id,citas(cliente_nombre,cita_servicios(nombre_servicio),estilistas(nombre,color))')
+    .gte('fecha', desde).lte('fecha', hasta).order('fecha').order('hora');
+  if (metodo) qP = qP.eq('metodo_pago', metodo);
+  const rP = await qP;
+  const movP = (rP.data||[]).map(p => ({
+    fecha: p.fecha, hora: p.hora||'00:00',
+    valor: parseFloat(p.valor_cobrado)||0,
+    metodo_pago: p.metodo_pago, tipo: 'pago',
+    citas: p.citas
+  }));
+
+  // ─ Abonos ─
+  let movA = [];
+  try {
+    let qA = sb.from('abonos')
+      .select('id,fecha,hora,valor,metodo_pago,cita_id,citas(cliente_nombre,cita_servicios(nombre_servicio),estilistas(nombre,color))')
+      .gte('fecha', desde).lte('fecha', hasta).order('fecha').order('hora');
+    if (metodo) qA = qA.eq('metodo_pago', metodo);
+    const rA = await qA;
+    movA = (rA.data||[]).map(a => ({
+      fecha: a.fecha, hora: a.hora||'00:00',
+      valor: parseFloat(a.valor)||0,
+      metodo_pago: a.metodo_pago, tipo: 'abono',
+      citas: a.citas
+    }));
+  } catch(e) { /* tabla abonos no existe aún */ }
+
+  // Combinar y filtrar por estilista si aplica
+  let todos = [...movP, ...movA];
+  if (estiNombre) todos = todos.filter(m => m.citas?.estilistas?.nombre === estiNombre);
+  todos.sort((a,b) => (b.fecha+b.hora).localeCompare(a.fecha+a.hora));
+  return todos;
+}
+
+// ── Helpers de render ─────────────────────────────────────────────
+const fmt = n => '$'+Math.round(n||0).toLocaleString('es-CO');
+
+function kpi(lbl, val, color, sub) {
+  return `<div class="kpi"><div class="kpi-lbl">${lbl}</div><div class="kpi-val" style="color:${color}">${val}</div>${sub?`<div class="kpi-sub">${sub}</div>`:''}</div>`;
+}
+
+function destroyChart(id) { if(charts[id]){ charts[id].destroy(); delete charts[id]; } }
+
+function renderMetodos(elId, movs) {
+  const por = {};
+  movs.forEach(m => {
+    if (!por[m.metodo_pago]) por[m.metodo_pago] = {t:0, n:0};
+    por[m.metodo_pago].t += m.valor; por[m.metodo_pago].n++;
+  });
+  const total = Object.values(por).reduce((s,x)=>s+x.t, 0);
+  document.getElementById(elId).innerHTML = Object.entries(por).length
+    ? Object.entries(por).sort((a,b)=>b[1].t-a[1].t).map(([mp,v])=>`
+        <div class="mp-card">
+          <div class="mp-ico-lbl">${ICOS[mp]||'💰'} ${mp}</div>
+          <div class="mp-monto">${fmt(v.t)}</div>
+          <div class="mp-cnt">${v.n} mov. · ${total?Math.round(v.t/total*100):0}%</div>
+          <div class="mp-bar"><div class="mp-bar-fill" style="width:${total?Math.round(v.t/total*100):0}%"></div></div>
+        </div>`).join('')
+    : '<p style="color:#4b5563;font-size:12px">Sin movimientos</p>';
+}
+
+function renderEstilistas(tbodyId, movs) {
+  const por = {};
+  movs.forEach(m => {
+    const n = m.citas?.estilistas?.nombre || 'Sin asignar';
+    const col = m.citas?.estilistas?.color || '#6b7280';
+    if (!por[n]) por[n] = {t:0, n:0, col};
+    por[n].t += m.valor; por[n].n++;
+  });
+  document.getElementById(tbodyId).innerHTML = Object.entries(por).length
+    ? Object.entries(por).sort((a,b)=>b[1].t-a[1].t).map(([n,v])=>
+        `<tr><td><span class="dot" style="background:${v.col}"></span>${n}</td><td>${v.n}</td><td style="color:#4ade80;font-weight:600">${fmt(v.t)}</td></tr>`).join('')
+    : '<tr><td colspan="3" style="color:#4b5563;text-align:center;padding:16px">Sin datos</td></tr>';
+}
+
+function renderTxTable(tbodyId, movs, cols=6) {
+  const tbody = document.getElementById(tbodyId);
+  if (!movs.length) { tbody.innerHTML=`<tr><td colspan="${cols}" class="empty-hist">Sin transacciones</td></tr>`; return; }
+  tbody.innerHTML = movs.map(m => {
+    const badge = m.tipo==='abono'
+      ? `<span style="font-size:9px;background:rgba(251,191,36,0.2);color:#fbbf24;padding:1px 5px;border-radius:3px;margin-left:4px">abono</span>`:'';
+    const servs = (m.citas?.cita_servicios||[]).map(s=>s.nombre_servicio).join(', ')||'—';
+    return `<tr>
+      <td class="td-fecha">${m.hora.slice(0,5)}</td>
+      <td class="td-cli">${m.citas?.cliente_nombre||'—'}${badge}</td>
+      <td class="td-serv">${servs}</td>
+      <td class="td-esti">${m.citas?.estilistas?.nombre||'—'}</td>
+      <td class="td-mp"><span class="mp-pill">${ICOS[m.metodo_pago]||''} ${m.metodo_pago}</span></td>
+      <td class="td-val">${fmt(m.valor)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Init ──────────────────────────────────────────────────────────
 window.addEventListener('load', async () => {
   const raw = sessionStorage.getItem('salon_user');
   if (!raw) { window.location.href='index.html'; return; }
   const s = JSON.parse(raw);
   if (s.rol !== 'admin' && s.rol !== 'recepcionista') { window.location.href='dashboard.html'; return; }
-
-  // Cargar estilistas para filtro
   const { data: eData } = await sb.from('estilistas').select('id,nombre,color').order('nombre');
-  estilistas = eData || [];
-  const selEsti = document.getElementById('fEstilista');
-  estilistas.forEach(e => { const o=document.createElement('option');o.value=e.id;o.textContent=e.nombre;selEsti.appendChild(o); });
-
-  // Fechas por defecto en historial
+  estilistas = eData||[];
+  const sel = document.getElementById('fEstilista');
+  estilistas.forEach(e => { const o=document.createElement('option');o.value=e.id;o.textContent=e.nombre;sel.appendChild(o); });
   document.getElementById('fDesde').value = MES+'-01';
   document.getElementById('fHasta').value = HOY;
-
   await cargarDia();
 });
 
 // ── Tabs ──────────────────────────────────────────────────────────
 function setTab(t) {
-  tabActual = t;
   document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('on', el.id==='t-'+t));
   document.querySelectorAll('.content').forEach(el=>el.classList.toggle('on', el.id==='c-'+t));
   if (t==='dia')  cargarDia();
@@ -298,154 +326,74 @@ function setTab(t) {
   if (t==='hist') cargarHistorial();
 }
 
-// ── Helpers ───────────────────────────────────────────────────────
-function fmt(n) { return '$'+Math.round(n).toLocaleString('es-CO'); }
-function destroyChart(id) { if(charts[id]){charts[id].destroy();delete charts[id];} }
-
-function renderKPIs(containerId, items) {
-  document.getElementById(containerId).innerHTML = items.map(k=>`
-    <div class="kpi">
-      <div class="kpi-lbl">${k.label}</div>
-      <div class="kpi-val" style="color:${k.color||'#f1f0ec'}">${k.val}</div>
-      ${k.sub?`<div class="kpi-sub">${k.sub}</div>`:''}
-    </div>`).join('');
-}
-
-function renderMetodos(containerId, pagos) {
-  const por = {};
-  // Acepta tanto p.valor (movimientos unificados) como p.valor_cobrado (pagos legacy)
-  pagos.forEach(p=>{ const v=p.valor??parseFloat(p.valor_cobrado??0); if(!por[p.metodo_pago]) por[p.metodo_pago]={t:0,n:0}; por[p.metodo_pago].t+=v; por[p.metodo_pago].n++; });
-  const total = Object.values(por).reduce((s,x)=>s+x.t, 0);
-  document.getElementById(containerId).innerHTML = Object.entries(por).length
-    ? Object.entries(por).sort((a,b)=>b[1].t-a[1].t).map(([m,v])=>`
-        <div class="mp-card">
-          <div class="mp-ico-lbl">${ICOS[m]||'💰'} ${m}</div>
-          <div class="mp-monto">${fmt(v.t)}</div>
-          <div class="mp-cnt">${v.n} pago${v.n!==1?'s':''}</div>
-          <div class="mp-bar"><div class="mp-bar-fill" style="width:${total?Math.round(v.t/total*100):0}%"></div></div>
-        </div>`).join('')
-    : '<p style="color:#4b5563;font-size:12px">Sin pagos en este período</p>';
-}
-
-function renderEstilistas(tbodyId, pagosConCita) {
-  const por = {};
-  pagosConCita.forEach(p => {
-    const n = p.citas?.estilistas?.nombre || 'Sin asignar';
-    const col = p.citas?.estilistas?.color || '#6b7280';
-    if (!por[n]) por[n]={t:0,n:0,col};
-    const v = p.valor ?? parseFloat(p.valor_cobrado ?? 0);
-    por[n].t += v; por[n].n++;
-  });
-  const rows = Object.entries(por).sort((a,b)=>b[1].t-a[1].t);
-  document.getElementById(tbodyId).innerHTML = rows.length
-    ? rows.map(([n,v])=>`<tr><td><span class="dot" style="background:${v.col}"></span>${n}</td><td>${v.n}</td><td style="color:#4ade80;font-weight:600">${fmt(v.t)}</td></tr>`).join('')
-    : '<tr><td colspan="3" style="color:#4b5563;text-align:center;padding:20px">Sin datos</td></tr>';
-}
-
-function renderTxTable(tbodyId, pagos) {
-  const tbody = document.getElementById(tbodyId);
-  if (!pagos.length) { tbody.innerHTML=`<tr><td colspan="6" class="empty-hist">Sin transacciones</td></tr>`; return; }
-  tbody.innerHTML = pagos.map(p=>{
-    const v = p.valor ?? parseFloat(p.valor_cobrado ?? 0);
-    const tipoBadge = p.tipo==='abono'
-      ? `<span style="font-size:9px;background:rgba(251,191,36,0.15);color:#fbbf24;padding:1px 5px;border-radius:4px;margin-left:4px">abono</span>`
-      : '';
-    return `<tr>
-      <td class="td-fecha">${p.hora?.slice(0,5)||'—'}</td>
-      <td class="td-cli">${p.citas?.cliente_nombre||'—'}${tipoBadge}</td>
-      <td class="td-serv">${(p.citas?.cita_servicios||[]).map(s=>s.nombre_servicio).join(', ')||'—'}</td>
-      <td class="td-esti">${p.citas?.estilistas?.nombre||'—'}</td>
-      <td class="td-mp"><span class="mp-pill">${ICOS[p.metodo_pago]||''} ${p.metodo_pago}</span></td>
-      <td class="td-val">${fmt(v)}</td>
-    </tr>`;
-  }).join('');
-}
-
 // ─────────────────────────────────────────────────────────────────
 // TAB HOY
 // ─────────────────────────────────────────────────────────────────
 async function cargarDia() {
-  const P = await cargarMovimientos({ desde: HOY, hasta: HOY });
-  const total  = P.reduce((s,p)=>s+p.valor, 0);
-  const totalS = P.reduce((s,p)=> p.tipo==='pago' ? s+parseFloat(p.citas?(()=>{try{return (p.citas.cita_servicios||[]).reduce((x,cs)=>x+parseFloat(cs.precio_unitario||0),0)}catch(e){return 0}})()):0 : 0, 0);
-  const dif = 0; // Con abonos el diferencial no aplica igual
+  const P = await cargarMovimientos(HOY, HOY);
+  const total  = P.reduce((s,m)=>s+m.valor, 0);
+  const nAbono = P.filter(m=>m.tipo==='abono').length;
 
-  renderKPIs('kDia',[
-    {label:'Total recaudado hoy', val:fmt(total), color:'#4ade80'},
-    {label:'N° transacciones',    val:P.length,   color:'#60a5fa'},
-    {label:'Precio lista',        val:fmt(totalS),color:'#a78bfa', sub:'sin ajustes'},
-    {label:'Ajuste precio',       val:(dif>=0?'+':'')+fmt(dif), color:dif<0?'#f87171':'#fbbf24', sub:'diferencia cobrada'}
-  ]);
+  document.getElementById('kDia').innerHTML =
+    kpi('Total recaudado hoy', fmt(total), '#4ade80') +
+    kpi('Movimientos', P.length, '#60a5fa', nAbono?`${nAbono} abono${nAbono!==1?'s':''}`:null) +
+    kpi('Pagos completos', P.filter(m=>m.tipo==='pago').length, '#a78bfa') +
+    kpi('Abonos', nAbono, '#fbbf24');
 
   renderMetodos('mpDia', P);
   renderEstilistas('estiDia', P);
-
-  // Tabla
   renderTxTable('txDia', P);
 
-  // Gráfica: ingresos por hora
   destroyChart('chartHoras');
   const porHora = {};
-  P.forEach(p=>{ const h=(p.hora||'00').slice(0,2)+':00'; if(!porHora[h]) porHora[h]=0; porHora[h]+=(p.valor??parseFloat(p.valor_cobrado??0)); });
-  const hLabels = Object.keys(porHora).sort();
-  charts['chartHoras'] = new Chart(document.getElementById('chartHoras'),{
-    type:'bar',
-    data:{labels:hLabels, datasets:[{label:'Ingresos',data:hLabels.map(h=>porHora[h]),backgroundColor:'rgba(192,132,252,0.6)',borderColor:'#c084fc',borderWidth:1,borderRadius:4}]},
+  P.forEach(m=>{ const h=m.hora.slice(0,2)+':00'; porHora[h]=(porHora[h]||0)+m.valor; });
+  const hL = Object.keys(porHora).sort();
+  if (hL.length) charts['chartHoras'] = new Chart(document.getElementById('chartHoras'),{
+    type:'bar', data:{labels:hL,datasets:[{data:hL.map(h=>porHora[h]),backgroundColor:'rgba(192,132,252,0.6)',borderColor:'#c084fc',borderWidth:1,borderRadius:4}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>'$'+v.toLocaleString('es-CO')}}}}
   });
 
-  // Gráfica: torta métodos pago
   destroyChart('chartMpDia');
-  const por={};P.forEach(p=>{if(!por[p.metodo_pago])por[p.metodo_pago]=0;por[p.metodo_pago]+=(p.valor??parseFloat(p.valor_cobrado??0));});
-  if(Object.keys(por).length>0){
-    charts['chartMpDia']=new Chart(document.getElementById('chartMpDia'),{
-      type:'doughnut',
-      data:{labels:Object.keys(por),datasets:[{data:Object.values(por),backgroundColor:COLORES_CHART,borderWidth:2,borderColor:'#13131f'}]},
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{boxWidth:10,padding:12}}}}
-    });
-  }
+  const por={}; P.forEach(m=>{por[m.metodo_pago]=(por[m.metodo_pago]||0)+m.valor;});
+  if (Object.keys(por).length) charts['chartMpDia'] = new Chart(document.getElementById('chartMpDia'),{
+    type:'doughnut', data:{labels:Object.keys(por),datasets:[{data:Object.values(por),backgroundColor:COLORES,borderWidth:2,borderColor:'#13131f'}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{boxWidth:10,padding:12}}}}
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────
 // TAB MES
 // ─────────────────────────────────────────────────────────────────
 async function cargarMes() {
-  const P = await cargarMovimientos({ desde: MES+'-01', hasta: ultimoDia });
-  const total   = P.reduce((s,p)=>s+p.valor, 0);
-  const diasCon = [...new Set(P.map(p=>p.fecha))].length;
-  const promDia = diasCon ? total/diasCon : 0;
+  const P = await cargarMovimientos(MES+'-01', ultimoDia);
+  const total   = P.reduce((s,m)=>s+m.valor, 0);
+  const diasSet = new Set(P.map(m=>m.fecha));
+  const promDia = diasSet.size ? total/diasSet.size : 0;
+  const nAbono  = P.filter(m=>m.tipo==='abono').length;
 
-  renderKPIs('kMes',[
-    {label:`Total ${MESES_N[M-1]}`,  val:fmt(total),         color:'#4ade80'},
-    {label:'Transacciones',           val:P.length,           color:'#60a5fa'},
-    {label:'Días con ingresos',       val:diasCon,            color:'#a78bfa'},
-    {label:'Promedio por día',        val:fmt(promDia),       color:'#fbbf24'}
-  ]);
+  document.getElementById('kMes').innerHTML =
+    kpi(`Total ${MESES_N[M-1]}`, fmt(total), '#4ade80') +
+    kpi('Movimientos', P.length, '#60a5fa', nAbono?`${nAbono} abono${nAbono!==1?'s':''}`:null) +
+    kpi('Días con ingresos', diasSet.size, '#a78bfa') +
+    kpi('Promedio por día', fmt(promDia), '#fbbf24');
 
   renderMetodos('mpMes', P);
   renderEstilistas('estiMes', P);
 
-  // Gráfica: ingresos por día
   destroyChart('chartDias');
-  const porDia = {};
-  P.forEach(p=>{ if(!porDia[p.fecha]) porDia[p.fecha]=0; porDia[p.fecha]+=(p.valor??parseFloat(p.valor_cobrado??0)); });
-  const dLabels = Object.keys(porDia).sort();
-  charts['chartDias']=new Chart(document.getElementById('chartDias'),{
-    type:'line',
-    data:{labels:dLabels.map(d=>d.slice(8)), datasets:[{label:'Ingresos',data:dLabels.map(d=>porDia[d]),borderColor:'#c084fc',backgroundColor:'rgba(192,132,252,0.1)',fill:true,tension:.35,pointRadius:3,pointBackgroundColor:'#c084fc'}]},
+  const porDia={};P.forEach(m=>{porDia[m.fecha]=(porDia[m.fecha]||0)+m.valor;});
+  const dL=Object.keys(porDia).sort();
+  if (dL.length) charts['chartDias'] = new Chart(document.getElementById('chartDias'),{
+    type:'line', data:{labels:dL.map(d=>d.slice(8)),datasets:[{data:dL.map(d=>porDia[d]),borderColor:'#c084fc',backgroundColor:'rgba(192,132,252,0.1)',fill:true,tension:.35,pointRadius:3,pointBackgroundColor:'#c084fc'}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>'$'+v.toLocaleString('es-CO')}}}}
   });
 
-  // Torta métodos
   destroyChart('chartMpMes');
-  const por={};P.forEach(p=>{if(!por[p.metodo_pago])por[p.metodo_pago]=0;por[p.metodo_pago]+=(p.valor??parseFloat(p.valor_cobrado??0));});
-  if(Object.keys(por).length>0){
-    charts['chartMpMes']=new Chart(document.getElementById('chartMpMes'),{
-      type:'doughnut',
-      data:{labels:Object.keys(por),datasets:[{data:Object.values(por),backgroundColor:COLORES_CHART,borderWidth:2,borderColor:'#13131f'}]},
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{boxWidth:10,padding:12}}}}
-    });
-  }
+  const por={};P.forEach(m=>{por[m.metodo_pago]=(por[m.metodo_pago]||0)+m.valor;});
+  if (Object.keys(por).length) charts['chartMpMes'] = new Chart(document.getElementById('chartMpMes'),{
+    type:'doughnut', data:{labels:Object.keys(por),datasets:[{data:Object.values(por),backgroundColor:COLORES,borderWidth:2,borderColor:'#13131f'}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{boxWidth:10,padding:12}}}}
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -453,51 +401,44 @@ async function cargarMes() {
 // ─────────────────────────────────────────────────────────────────
 async function cargarAno() {
   document.getElementById('anoLabel').textContent = ANO;
-  const P = await cargarMovimientos({ desde: ANO+'-01-01', hasta: ANO+'-12-31' });
-  const total = P.reduce((s,p)=>s+p.valor, 0);
-  const mesMax = (() => {
-    const pm={};P.forEach(p=>{const m=p.fecha.slice(0,7);if(!pm[m])pm[m]=0;pm[m]+=(p.valor??parseFloat(p.valor_cobrado??0));});
-    const e=Object.entries(pm).sort((a,b)=>b[1]-a[1])[0];
-    return e?MESES_N[parseInt(e[0].split('-')[1])-1]:'—';
-  })();
+  const P = await cargarMovimientos(ANO+'-01-01', ANO+'-12-31');
+  const total = P.reduce((s,m)=>s+m.valor, 0);
 
-  renderKPIs('kAno',[
-    {label:`Total ${ANO}`,          val:fmt(total),   color:'#4ade80'},
-    {label:'Transacciones año',      val:P.length,     color:'#60a5fa'},
-    {label:'Mejor mes',              val:mesMax,       color:'#a78bfa'},
-    {label:'Promedio mensual',       val:fmt(total/12),color:'#fbbf24'}
-  ]);
+  const porMes={};
+  P.forEach(m=>{ const mes=m.fecha.slice(0,7); porMes[mes]=(porMes[mes]||0)+m.valor; });
+  const mesMaxEntry = Object.entries(porMes).sort((a,b)=>b[1]-a[1])[0];
+  const mesMax = mesMaxEntry ? MESES_N[parseInt(mesMaxEntry[0].split('-')[1])-1] : '—';
 
-  // Barras mensuales
+  document.getElementById('kAno').innerHTML =
+    kpi(`Total ${ANO}`, fmt(total), '#4ade80') +
+    kpi('Movimientos año', P.length, '#60a5fa') +
+    kpi('Mejor mes', mesMax, '#a78bfa') +
+    kpi('Promedio mensual', fmt(total/12), '#fbbf24');
+
   destroyChart('chartMeses');
-  const pm={};P.forEach(p=>{const m=p.fecha.slice(5,7);if(!pm[m])pm[m]=0;pm[m]+=(p.valor??parseFloat(p.valor_cobrado??0));});
-  charts['chartMeses']=new Chart(document.getElementById('chartMeses'),{
+  const dataMeses = MESES_N.map((_,i)=>porMes[ANO+'-'+String(i+1).padStart(2,'0')]||0);
+  const mesActualIdx = M-1;
+  charts['chartMeses'] = new Chart(document.getElementById('chartMeses'),{
     type:'bar',
-    data:{
-      labels:MESES_N,
-      datasets:[{label:'Ingresos',data:MESES_N.map((_,i)=>pm[String(i+1).padStart(2,'0')]||0),backgroundColor:MESES_N.map((_,i)=>parseInt(ANO+String(i+1).padStart(2,'0'))<=parseInt(MES.replace('-',''))?'rgba(192,132,252,0.7)':'rgba(255,255,255,0.07)'),borderColor:MESES_N.map((_,i)=>parseInt(ANO+String(i+1).padStart(2,'0'))<=parseInt(MES.replace('-',''))?'#c084fc':'rgba(255,255,255,0.1)'),borderWidth:1,borderRadius:5}]
-    },
+    data:{labels:MESES_N,datasets:[{data:dataMeses,
+      backgroundColor:dataMeses.map((_,i)=>i<=mesActualIdx?'rgba(192,132,252,0.7)':'rgba(255,255,255,0.06)'),
+      borderColor:dataMeses.map((_,i)=>i<=mesActualIdx?'#c084fc':'rgba(255,255,255,0.1)'),
+      borderWidth:1,borderRadius:5}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>'$'+v.toLocaleString('es-CO')}}}}
   });
 
-  // Torta métodos año
   destroyChart('chartMpAno');
-  const por={};P.forEach(p=>{if(!por[p.metodo_pago])por[p.metodo_pago]=0;por[p.metodo_pago]+=(p.valor??parseFloat(p.valor_cobrado??0));});
-  if(Object.keys(por).length>0){
-    charts['chartMpAno']=new Chart(document.getElementById('chartMpAno'),{
-      type:'doughnut',
-      data:{labels:Object.keys(por),datasets:[{data:Object.values(por),backgroundColor:COLORES_CHART,borderWidth:2,borderColor:'#13131f'}]},
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{boxWidth:10,padding:12}}}}
-    });
-  }
+  const por={};P.forEach(m=>{por[m.metodo_pago]=(por[m.metodo_pago]||0)+m.valor;});
+  if (Object.keys(por).length) charts['chartMpAno'] = new Chart(document.getElementById('chartMpAno'),{
+    type:'doughnut', data:{labels:Object.keys(por),datasets:[{data:Object.values(por),backgroundColor:COLORES,borderWidth:2,borderColor:'#13131f'}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{boxWidth:10,padding:12}}}}
+  });
 
-  // Barras por estilista año
   destroyChart('chartEstiAno');
-  const pe={};P.forEach(p=>{const n=p.citas?.estilistas?.nombre||'Otros';if(!pe[n])pe[n]=0;pe[n]+=(p.valor??parseFloat(p.valor_cobrado??0));});
-  const eEntries=Object.entries(pe).sort((a,b)=>b[1]-a[1]);
-  charts['chartEstiAno']=new Chart(document.getElementById('chartEstiAno'),{
-    type:'bar',
-    data:{labels:eEntries.map(e=>e[0]),datasets:[{label:'Ingresos',data:eEntries.map(e=>e[1]),backgroundColor:eEntries.map((_,i)=>COLORES_CHART[i%COLORES_CHART.length]),borderRadius:5}]},
+  const pe={};P.forEach(m=>{const n=m.citas?.estilistas?.nombre||'Otros';pe[n]=(pe[n]||0)+m.valor;});
+  const eE=Object.entries(pe).sort((a,b)=>b[1]-a[1]);
+  if (eE.length) charts['chartEstiAno'] = new Chart(document.getElementById('chartEstiAno'),{
+    type:'bar', data:{labels:eE.map(e=>e[0]),datasets:[{data:eE.map(e=>e[1]),backgroundColor:eE.map((_,i)=>COLORES[i%COLORES.length]),borderRadius:5}]},
     options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{ticks:{callback:v=>'$'+v.toLocaleString('es-CO')}}}}
   });
 }
@@ -506,65 +447,59 @@ async function cargarAno() {
 // TAB HISTORIAL
 // ─────────────────────────────────────────────────────────────────
 async function cargarHistorial() {
-  const desde  = document.getElementById('fDesde').value;
-  const hasta  = document.getElementById('fHasta').value;
-  const metodo = document.getElementById('fMetodo').value;
+  const desde  = document.getElementById('fDesde').value || MES+'-01';
+  const hasta  = document.getElementById('fHasta').value || HOY;
+  const metodo = document.getElementById('fMetodo').value || null;
   const estiId = document.getElementById('fEstilista').value;
+  const estiNombre = estiId ? estilistas.find(e=>e.id==estiId)?.nombre : null;
 
-  // Cargar pagos + abonos unificados con filtros
-  const P = await cargarMovimientos({ desde: desde||undefined, hasta: hasta||undefined, metodo: metodo||undefined, estiId: estiId||undefined });
-
+  const P = await cargarMovimientos(desde, hasta, metodo, estiNombre);
   pagosHist = P;
-  const total      = P.reduce((s,p)=>s+p.valor, 0);
-  const diasUnicos = [...new Set(P.map(p=>p.fecha))].length;
-  const nAbonos    = P.filter(p=>p.tipo==='abono').length;
+  const total   = P.reduce((s,m)=>s+m.valor, 0);
+  const diasU   = new Set(P.map(m=>m.fecha)).size;
+  const nAbono  = P.filter(m=>m.tipo==='abono').length;
 
-  renderKPIs('kHist',[
-    {label:'Total período',    val:fmt(total),   color:'#4ade80'},
-    {label:'Movimientos',      val:P.length,     color:'#60a5fa', sub:`${nAbonos} abono${nAbonos!==1?'s':''}`},
-    {label:'Días con cobros',  val:diasUnicos,   color:'#a78bfa'},
-    {label:'Promedio x mov.',  val:P.length?fmt(total/P.length):'$0', color:'#fbbf24'}
-  ]);
+  document.getElementById('kHist').innerHTML =
+    kpi('Total período', fmt(total), '#4ade80') +
+    kpi('Movimientos', P.length, '#60a5fa', nAbono?`${nAbono} abono${nAbono!==1?'s':''}`:null) +
+    kpi('Días con cobros', diasU, '#a78bfa') +
+    kpi('Promedio x mov.', P.length?fmt(total/P.length):'$0', '#fbbf24');
 
   document.getElementById('totalHist').textContent = fmt(total);
 
   const tbody = document.getElementById('txHist');
-  if (!P.length) { tbody.innerHTML=`<tr><td colspan="7" class="empty-hist">Sin transacciones en el período</td></tr>`; return; }
-  tbody.innerHTML = P.map(p => {
-    const tipoBadge = p.tipo==='abono'
-      ? `<span style="font-size:9px;background:rgba(251,191,36,0.15);color:#fbbf24;padding:1px 5px;border-radius:4px;margin-left:4px">abono</span>`
-      : '';
+  if (!P.length) { tbody.innerHTML='<tr><td colspan="7" class="empty-hist">Sin transacciones</td></tr>'; return; }
+  tbody.innerHTML = P.map(m => {
+    const badge = m.tipo==='abono'
+      ? `<span style="font-size:9px;background:rgba(251,191,36,0.2);color:#fbbf24;padding:1px 5px;border-radius:3px;margin-left:4px">abono</span>`:'';
     return `<tr>
-      <td class="td-fecha">${p.fecha}</td>
-      <td class="td-fecha">${p.hora?.slice(0,5)||'—'}</td>
-      <td class="td-cli">${p.citas?.cliente_nombre||'—'}${tipoBadge}</td>
-      <td class="td-serv">${(p.citas?.cita_servicios||[]).map(s=>s.nombre_servicio).join(', ')||'—'}</td>
-      <td class="td-esti">${p.citas?.estilistas?.nombre||'—'}</td>
-      <td class="td-mp"><span class="mp-pill">${ICOS[p.metodo_pago]||''} ${p.metodo_pago}</span></td>
-      <td class="td-val">${fmt(p.valor)}</td>
+      <td class="td-fecha">${m.fecha}</td>
+      <td class="td-fecha">${m.hora.slice(0,5)}</td>
+      <td class="td-cli">${m.citas?.cliente_nombre||'—'}${badge}</td>
+      <td class="td-serv">${(m.citas?.cita_servicios||[]).map(s=>s.nombre_servicio).join(', ')||'—'}</td>
+      <td class="td-esti">${m.citas?.estilistas?.nombre||'—'}</td>
+      <td class="td-mp"><span class="mp-pill">${ICOS[m.metodo_pago]||''} ${m.metodo_pago}</span></td>
+      <td class="td-val">${fmt(m.valor)}</td>
     </tr>`;
   }).join('');
 }
 
 // ── Exportar CSV ──────────────────────────────────────────────────
 function exportarCSV() {
-  const P = pagosHist.length ? pagosHist : [];
-  if (!P.length) { alert('Primero ve al tab Historial y haz una búsqueda.'); return; }
-  const enc = s => '"' + String(s||'').replace(/"/g,'""') + '"';
-  const cab = ['Fecha','Hora','Cliente','Servicios','Estilista','Metodo_pago','Valor_cobrado','Total_servicios'];
-  const filas = P.map(p=>[
-    p.fecha, p.hora?.slice(0,5)||'',
-    p.citas?.cliente_nombre||'',
-    (p.citas?.cita_servicios||[]).map(s=>s.nombre_servicio).join(' | '),
-    p.citas?.estilistas?.nombre||'',
-    p.metodo_pago,
-    p.valor,  // incluye abonos y pagos
-    p.tipo||'pago'
+  if (!pagosHist.length) { alert('Ve al tab Historial y haz una búsqueda primero.'); return; }
+  const enc = s => '"'+String(s||'').replace(/"/g,'""')+'"';
+  const cab = ['Fecha','Hora','Tipo','Cliente','Servicios','Estilista','Metodo_pago','Valor'];
+  const filas = pagosHist.map(m=>[
+    m.fecha, m.hora.slice(0,5), m.tipo,
+    m.citas?.cliente_nombre||'',
+    (m.citas?.cita_servicios||[]).map(s=>s.nombre_servicio).join(' | '),
+    m.citas?.estilistas?.nombre||'',
+    m.metodo_pago, m.valor
   ].map(enc).join(','));
-  const csv = [cab.join(','), ...filas].join('\n');
-  const blob = new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download=`finanzas_salon_${HOY}.csv`; a.click();
+  const csv = [cab.join(','),...filas].join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'}));
+  a.download='finanzas_salon_'+HOY+'.csv'; a.click();
 }
 </script>
 </body>
