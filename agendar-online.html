@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Salón · Agendar tu cita</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d0d14;color:#f1f0ec;min-height:100vh}
@@ -132,12 +133,38 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   let horaSeleccionada = null;
   // HORARIOS ahora se generan dinámicamente desde configuracion del salón en cargarDisponibilidad()
 
+  // ⚠️ REEMPLAZA con tus datos de EmailJS (ver instrucciones en README)
+  const EJS_PUBLIC_KEY    = 'cNsQz1Z74DCnPeVHV';
+  const EJS_SERVICE_ID    = 'service_nnwhllz';
+  const EJS_TEMPLATE_ID   = 'template_89r67r7';
+
+  function iniciarEmailJS() {
+    try { emailjs.init(EJS_PUBLIC_KEY); } catch(e) {}
+  }
+
+  async function enviarNotificacionEstilista({ emailEstilista, nombreEstilista, clienteNombre, clienteTel, fecha, horaInicio, horaFin, servicios, origen }) {
+    if (!emailEstilista) return;
+    if (EJS_PUBLIC_KEY === 'TU_EMAILJS_PUBLIC_KEY') return;
+    const diasSemana = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+    const d = new Date(fecha+'T12:00:00Z');
+    const fechaLegible = `${diasSemana[d.getUTCDay()]} ${d.getUTCDate()}/${d.getUTCMonth()+1}/${d.getUTCFullYear()}`;
+    try {
+      await emailjs.send(EJS_SERVICE_ID, EJS_TEMPLATE_ID, {
+        to_email: emailEstilista, to_name: nombreEstilista,
+        cliente_nombre: clienteNombre, cliente_tel: clienteTel || 'No registrado',
+        fecha: fechaLegible, hora_inicio: horaInicio, hora_fin: horaFin,
+        servicios, origen: 'Agendamiento online (cliente)',
+      });
+    } catch(err) { console.warn('EmailJS:', err); }
+  }
+
   window.addEventListener('load', async () => {
     // Fecha Colombia UTC-5
     const colNow = new Date(Date.now() - 5*60*60*1000);
     const colTomorrow = new Date(colNow.getTime() + 24*60*60*1000);
     document.getElementById('fechaOnline').value = colTomorrow.toISOString().slice(0,10);
     document.getElementById('fechaOnline').min = colNow.toISOString().slice(0,10);
+    iniciarEmailJS();
     await Promise.all([cargarCatalogo(), cargarEstilistas()]);
   });
 
@@ -161,7 +188,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   }
 
   async function cargarEstilistas() {
-    const { data } = await sb.from('estilistas').select('*').eq('activo',true).order('nombre');
+    const { data } = await sb.from('estilistas').select('id,nombre,especialidad,color,email').eq('activo',true).order('nombre');
     estilistas = data || [];
     const sel = document.getElementById('estilistaOnline');
     estilistas.forEach(e => {
@@ -243,40 +270,69 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       if (finDate.getHours() > ci || (finDate.getHours() === ci && finDate.getMinutes() > 0)) return;
       const hFin = String(finDate.getHours()).padStart(2,'0')+':'+String(finDate.getMinutes()).padStart(2,'0');
 
-      // Verificar bloqueo del slot
-      let bloqueadoPorBloq = false;
-      bloqs.forEach(b => {
-        // Si aplica a esta estilista (o a todas)
-        const aplicaEstilista = !estiId || b.estilista_id === null || b.estilista_id == estiId;
-        if (!aplicaEstilista) return;
-        if (b.todo_el_dia) { bloqueadoPorBloq = true; return; }
-        if (b.hora_inicio && h < (b.hora_fin||'23:59').slice(0,5) && hFin > b.hora_inicio.slice(0,5)) bloqueadoPorBloq = true;
-      });
-
-      // Verificar conflicto con citas existentes
-      let citasConflicto;
-      if (estiId) {
-        citasConflicto = citasEx.filter(c => c.estilista_id == estiId);
-      } else {
-        // Sin estilista específica: verificar si TODAS están ocupadas/bloqueadas
-        citasConflicto = citasEx; // se maneja abajo
-      }
-      const ocupado = citasConflicto.some(c => h < c.hora_fin && hFin > c.hora_inicio);
-
       const btn = document.createElement('div');
-      if (bloqueadoPorBloq) {
-        btn.className = 'slot-btn ocupado';
-        btn.textContent = h;
-        btn.title = 'Bloqueado';
-      } else if (ocupado) {
-        btn.className = 'slot-btn ocupado';
-        btn.textContent = h;
-        btn.title = 'Ocupado';
+
+      if (estiId) {
+        // ── Estilista específica elegida ──────────────────────────
+        // Verificar bloqueo
+        let bloqueada = false;
+        bloqs.forEach(b => {
+          const aplica = b.estilista_id === null || b.estilista_id == estiId;
+          if (!aplica) return;
+          if (b.todo_el_dia) { bloqueada = true; return; }
+          if (b.hora_inicio && h < (b.hora_fin||'23:59').slice(0,5) && hFin > b.hora_inicio.slice(0,5)) bloqueada = true;
+        });
+        // Verificar cita existente
+        const ocupada = citasEx.filter(c => c.estilista_id == estiId)
+          .some(c => h < c.hora_fin && hFin > c.hora_inicio);
+
+        if (bloqueada || ocupada) {
+          btn.className = 'slot-btn ocupado';
+          btn.textContent = h;
+          btn.title = bloqueada ? 'No disponible' : 'Ocupado';
+        } else {
+          btn.className = 'slot-btn';
+          btn.textContent = h;
+          btn.onclick = () => seleccionarSlot(h, btn);
+          haySlots = true;
+        }
+
       } else {
-        btn.className = 'slot-btn';
-        btn.textContent = h;
-        btn.onclick = () => seleccionarSlot(h, btn);
-        haySlots = true;
+        // ── Sin preferencia: disponible si AL MENOS UNA estilista está libre ──
+        // IDs de estilistas completamente bloqueadas ese día
+        const bloqueadasTodoDia = new Set(
+          bloqs.filter(b => b.todo_el_dia).map(b => b.estilista_id) // null = todas
+        );
+        const todasBloqueadas = bloqueadasTodoDia.has(null); // bloqueo global
+
+        // Revisar cada estilista activa
+        const hayLibre = !todasBloqueadas && estilistas.some(e => {
+          // ¿Está bloqueada toda la jornada?
+          if (bloqueadasTodoDia.has(e.id)) return false;
+          // ¿Tiene bloqueo de hora que cubra este slot?
+          const bloqHora = bloqs.some(b =>
+            (b.estilista_id === null || b.estilista_id === e.id) &&
+            !b.todo_el_dia && b.hora_inicio &&
+            h < (b.hora_fin||'23:59').slice(0,5) && hFin > b.hora_inicio.slice(0,5)
+          );
+          if (bloqHora) return false;
+          // ¿Tiene cita que se solape?
+          const tieneCita = citasEx
+            .filter(cx => cx.estilista_id === e.id)
+            .some(cx => h < cx.hora_fin && hFin > cx.hora_inicio);
+          return !tieneCita; // libre = sin cita en ese slot
+        });
+
+        if (!hayLibre) {
+          btn.className = 'slot-btn ocupado';
+          btn.textContent = h;
+          btn.title = 'Sin estilistas disponibles';
+        } else {
+          btn.className = 'slot-btn';
+          btn.textContent = h;
+          btn.onclick = () => seleccionarSlot(h, btn);
+          haySlots = true;
+        }
       }
       grid.appendChild(btn);
     });
@@ -380,6 +436,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         cita_id:citaData.id, servicio_id:parseInt(id),
         nombre_servicio:s.nombre, precio_unitario:s.precio, subtotal:s.precio
       })));
+      // ── Notificación por email a la estilista ──────────────────
+      if (estiAsignado) {
+        const estiN = estilistas.find(e => e.id === estiAsignado);
+        if (estiN?.email) {
+          const serviciosTxt = Object.values(serviciosSeleccionados)
+            .map(s=>`${s.nombre} ($${parseInt(s.precio).toLocaleString('es-CO')})`).join(', ');
+          enviarNotificacionEstilista({
+            emailEstilista: estiN.email,
+            nombreEstilista: estiN.nombre,
+            clienteNombre: nombre, clienteTel: tel,
+            fecha, horaInicio: horaSeleccionada, horaFin: hFin,
+            servicios: serviciosTxt,
+            origen: 'online'
+          });
+        }
+      }
       document.getElementById('formSection').style.display='none';
       const successCard = document.getElementById('successCard');
       const esti = estilistas.find(e=>e.id===estiAsignado);
