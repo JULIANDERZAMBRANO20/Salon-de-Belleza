@@ -90,6 +90,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .pcr label{font-size:12px;color:#a78bfa;white-space:nowrap}
 .pcr input{flex:1;background:#0d0d14;border:1px solid rgba(255,255,255,0.08);border-radius:7px;padding:7px 10px;font-size:13px;color:#f1f0ec;outline:none}
 .btn-pago{width:100%;background:linear-gradient(135deg,#c084fc,#e879f9);border:none;border-radius:9px;padding:10px;font-size:13px;font-weight:600;color:#fff;cursor:pointer}
+.abono-s{margin-top:10px;padding:12px;background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.2);border-radius:10px}
+.abono-s h3{font-size:12px;color:#fbbf24;margin-bottom:10px}
+.abono-lista{max-height:140px;overflow-y:auto;margin-bottom:10px}
+.abono-item{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:12px}
+.abono-item:last-child{border-bottom:none}
+.abono-val{color:#4ade80;font-weight:600}
+.abono-meta{color:#6b7280;font-size:10px}
+.saldo-row{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:rgba(255,255,255,0.04);border-radius:8px;margin-bottom:10px}
+.saldo-lbl{font-size:12px;color:#9ca3af}
+.saldo-val{font-size:16px;font-weight:700}
+.saldo-val.positivo{color:#f87171}
+.saldo-val.cero{color:#4ade80}
+.tab-pago{display:flex;gap:6px;margin-bottom:10px}
+.tab-p-btn{flex:1;padding:7px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid;text-align:center;transition:all .15s}
+.tab-p-btn.activo-abono{background:rgba(251,191,36,0.15);border-color:rgba(251,191,36,0.4);color:#fbbf24}
+.tab-p-btn.activo-saldo{background:rgba(74,222,128,0.12);border-color:rgba(74,222,128,0.35);color:#4ade80}
+.tab-p-btn.inactivo{background:transparent;border-color:rgba(255,255,255,0.08);color:#4b5563}
+.btn-abono{width:100%;background:rgba(251,191,36,0.15);border:1px solid rgba(251,191,36,0.4);border-radius:9px;padding:10px;font-size:13px;font-weight:600;color:#fbbf24;cursor:pointer;margin-top:6px}
+.btn-saldo{width:100%;background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.35);border-radius:9px;padding:10px;font-size:13px;font-weight:600;color:#4ade80;cursor:pointer;margin-top:6px}
 /* Form campos */
 .fl{font-size:11px;color:#6b7280;margin-bottom:5px;font-weight:500;margin-top:12px}
 .fl:first-of-type{margin-top:0}
@@ -158,12 +177,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="mc">
     <h2 id="cTit">Cita</h2>
     <div id="cBody"></div>
-    <div class="pago-s" id="pagoS">
-      <h3>💳 Registrar pago</h3>
-      <div class="mp-g" id="mpG"></div>
-      <div class="pcr"><label>Valor cobrado $</label><input type="number" id="vCobrado" placeholder="0"/></div>
-      <button class="btn-pago" onclick="registrarPago()">Confirmar pago</button>
-    </div>
+    <!-- Sección pagos/abonos — se construye dinámicamente -->
+    <div id="pagoS" class="pago-s" style="display:none"></div>
     <div class="modal-btns" id="cBtns"></div>
   </div>
 </div>
@@ -446,46 +461,172 @@ function irADia(fStr){const[y,m,d]=fStr.split('-').map(Number);FA=new Date(Date.
 function irADiaDetalle(fStr,citaId,y,m,d){FA=new Date(Date.UTC(y,m,d));setVista('dia');setTimeout(()=>detalle(citaId),700);}
 
 // ── Modal cita ────────────────────────────────────────────────────
+// ── Modal cita — Con sistema de abonos completo ─────────────────
 function nuevaCita(fecha,hora,estiId){sessionStorage.setItem('nueva_cita_pre',JSON.stringify({fecha,hora,estiId}));window.location.href='agendar.html';}
 
+let mpModal=null, tabPagoActual='abono';
+
 async function detalle(id){
-  const{data:c}=await sb.from('citas').select('*,cita_servicios(*),estilistas(nombre,color),pagos(*)').eq('id',id).single();
-  citaActual=c;
-  const tot=(c.cita_servicios||[]).reduce((s,x)=>s+parseFloat(x.precio_unitario),0);
-  const pago=c.pagos?.[0];const eC=c.estilistas?.color||'#c084fc';
-  document.getElementById('cTit').textContent='📋 '+c.cliente_nombre;
-  document.getElementById('cBody').innerHTML=`
+  const [resCita, resAbonos] = await Promise.all([
+    sb.from('citas').select('*,cita_servicios(*),estilistas(nombre,color),pagos(*)').eq('id',id).single(),
+    sb.from('abonos').select('*').eq('cita_id',id).order('creado_en')
+  ]);
+  citaActual = resCita.data;
+  const c = citaActual;
+  const abonosData = resAbonos.data || [];
+  const totalServicios = (c.cita_servicios||[]).reduce((s,x)=>s+parseFloat(x.precio_unitario),0);
+  const totalAbonado   = abonosData.reduce((s,a)=>s+parseFloat(a.valor),0);
+  const pagoFinal      = (c.pagos||[]).find(p=>p.tipo==='total'||p.tipo==='saldo'||!p.tipo);
+  const totalPagado    = pagoFinal ? parseFloat(pagoFinal.valor_cobrado) : 0;
+  const saldo          = totalServicios - totalAbonado - totalPagado;
+  const eC             = c.estilistas?.color||'#c084fc';
+
+  document.getElementById('cTit').textContent = '📋 ' + c.cliente_nombre;
+
+  const resumenFin = `
+    <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;margin:8px 0">
+      <div class="ir" style="border-color:rgba(255,255,255,0.04)">
+        <span class="ik">💰 Total servicios</span>
+        <span class="iv" style="color:#a78bfa;font-weight:700">$${totalServicios.toLocaleString('es-CO')}</span>
+      </div>
+      ${totalAbonado>0?`<div class="ir" style="border-color:rgba(255,255,255,0.04)">
+        <span class="ik">💛 Total abonado</span>
+        <span class="iv" style="color:#fbbf24;font-weight:600">$${totalAbonado.toLocaleString('es-CO')}</span>
+      </div>`:''}
+      ${totalPagado>0?`<div class="ir" style="border-color:rgba(255,255,255,0.04)">
+        <span class="ik">✅ Pago final</span>
+        <span class="iv" style="color:#4ade80;font-weight:600">$${totalPagado.toLocaleString('es-CO')}</span>
+      </div>`:''}
+      <div class="ir" style="border-bottom:none">
+        <span class="ik" style="font-weight:600">${saldo<=0?'✅ Estado':'⚠️ Saldo pendiente'}</span>
+        <span class="iv" style="color:${saldo<=0?'#4ade80':'#f87171'};font-weight:700;font-size:15px">
+          ${saldo<=0?'Pagado completo':'$'+Math.round(saldo).toLocaleString('es-CO')}
+        </span>
+      </div>
+    </div>`;
+
+  document.getElementById('cBody').innerHTML = `
     <div class="ir"><span class="ik">Estado</span><span class="ebadge e${c.estado[0]}">${tradE(c.estado)}</span></div>
     <div class="ir"><span class="ik">Estilista</span><span class="iv" style="color:${eC}">${c.estilistas?.nombre||'—'}</span></div>
     <div class="ir"><span class="ik">Fecha</span><span class="iv">${c.fecha} · ${c.hora_inicio?.slice(0,5)}–${c.hora_fin?.slice(0,5)}</span></div>
     <div class="ir"><span class="ik">Teléfono</span><span class="iv">${c.cliente_tel||'—'}</span></div>
     <div class="ir"><span class="ik">Servicios</span><span class="iv">${(c.cita_servicios||[]).map(s=>`${s.nombre_servicio} $${parseInt(s.precio_unitario).toLocaleString('es-CO')}`).join('<br/>')}</span></div>
-    <div class="ir"><span class="ik">Total</span><span class="iv" style="color:#a78bfa;font-weight:600">$${tot.toLocaleString('es-CO')}</span></div>
-    ${pago?`<div class="ir"><span class="ik">Pago</span><span class="iv" style="color:#4ade80">$${parseInt(pago.valor_cobrado).toLocaleString('es-CO')} · ${pago.metodo_pago}</span></div>`:''}
-    ${c.notas?`<div class="ir"><span class="ik">Notas</span><span class="iv">${c.notas}</span></div>`:''}`;
-  const ps=document.getElementById('pagoS');
-  if(!pago&&c.estado!=='cancelada'){
-    ps.classList.add('show');document.getElementById('vCobrado').value=tot;mpModal=null;
-    document.getElementById('mpG').innerHTML=METODOS.map(m=>`<div class="mp-i" onclick="setMP(this,'${m}')">${m}</div>`).join('');
-  } else ps.classList.remove('show');
-  let btns=`<button class="mbtn mbtn-cl" onclick="cerrarCita()">Cerrar</button>`;
-  if(c.estado!=='completada'&&c.estado!=='cancelada'){
-    btns+=`<button class="mbtn mbtn-ok" onclick="cambioEstado(${c.id},'completada')">✔ Completada</button>`;
-    btns+=`<button class="mbtn mbtn-rm" onclick="cambioEstado(${c.id},'cancelada')">✕ Cancelar</button>`;
+    ${c.notas?`<div class="ir"><span class="ik">Notas</span><span class="iv">${c.notas}</span></div>`:''}
+    ${resumenFin}`;
+
+  const ps = document.getElementById('pagoS');
+  if (c.estado !== 'cancelada' && saldo > 0.5) {
+    ps.style.display = 'block';
+    renderSeccionPago(abonosData, totalServicios, totalAbonado, saldo, c);
+  } else {
+    ps.style.display = 'none';
   }
-  document.getElementById('cBtns').innerHTML=btns;
+
+  let btns = `<button class="mbtn mbtn-cl" onclick="cerrarCita()">Cerrar</button>`;
+  if (c.estado !== 'completada' && c.estado !== 'cancelada') {
+    if (saldo <= 0.5) btns += `<button class="mbtn mbtn-ok" onclick="cambioEstado(${c.id},'completada')">✔ Completada</button>`;
+    btns += `<button class="mbtn mbtn-rm" onclick="cambioEstado(${c.id},'cancelada')">✕ Cancelar</button>`;
+  }
+  document.getElementById('cBtns').innerHTML = btns;
   document.getElementById('moCita').classList.add('show');
 }
-function setMP(el,m){document.querySelectorAll('.mp-i').forEach(b=>b.classList.remove('sel'));el.classList.add('sel');mpModal=m;}
-async function registrarPago(){
-  if(!mpModal){toast('Selecciona método de pago','error');return;}
-  const val=parseFloat(document.getElementById('vCobrado').value)||0;
-  const tot=(citaActual.cita_servicios||[]).reduce((s,x)=>s+parseFloat(x.precio_unitario),0);
-  const hora=new Date(Date.now()-5*60*60*1000).toISOString().slice(11,16);
-  await sb.from('pagos').insert({cita_id:citaActual.id,total_servicios:tot,valor_cobrado:val,metodo_pago:mpModal,registrado_por:session.usuario,fecha:citaActual.fecha,hora});
-  await cambioEstado(citaActual.id,'completada',false);
-  toast('✦ Pago $'+val.toLocaleString('es-CO'));cerrarCita();await recargar();
+
+function renderSeccionPago(abonosData, totalServicios, totalAbonado, saldo, cita) {
+  const ps = document.getElementById('pagoS');
+  tabPagoActual = totalAbonado > 0 ? 'saldo' : 'abono';
+  mpModal = null;
+  const histAbonos = abonosData.length > 0
+    ? `<div class="abono-lista">${abonosData.map(a=>`
+        <div class="abono-item">
+          <div><span class="abono-val">$${parseInt(a.valor).toLocaleString('es-CO')}</span>
+          <span class="abono-meta"> · ${a.metodo_pago}${a.notas?' · '+a.notas:''}</span></div>
+          <span class="abono-meta">${a.fecha} ${a.hora?.slice(0,5)||''}</span>
+        </div>`).join('')}</div>`
+    : '';
+  ps.className = 'abono-s';
+  ps.innerHTML = `
+    <h3>💳 Pagos — Pendiente: <span style="color:#f87171">$${Math.round(saldo).toLocaleString('es-CO')}</span></h3>
+    ${abonosData.length>0?'<div style="font-size:11px;color:#6b7280;margin-bottom:6px">Abonos registrados:</div>'+histAbonos:''}
+    <div class="tab-pago">
+      <div id="tabAbono" class="tab-p-btn ${tabPagoActual==='abono'?'activo-abono':'inactivo'}" onclick="setTabPago('abono')">💛 Abono</div>
+      <div id="tabSaldo" class="tab-p-btn ${tabPagoActual==='saldo'?'activo-saldo':'inactivo'}" onclick="setTabPago('saldo')">✅ Pago final</div>
+    </div>
+    <div id="formPagoInner"></div>`;
+  renderFormPago(saldo);
 }
+
+function setTabPago(tab) {
+  tabPagoActual = tab;
+  document.getElementById('tabAbono').className = 'tab-p-btn '+(tab==='abono'?'activo-abono':'inactivo');
+  document.getElementById('tabSaldo').className = 'tab-p-btn '+(tab==='saldo'?'activo-saldo':'inactivo');
+  mpModal = null;
+  const saldoTxt = document.querySelector('#pagoS h3 span');
+  const saldo = saldoTxt ? parseFloat(saldoTxt.textContent.replace(/[^0-9]/g,'')) : 0;
+  renderFormPago(saldo);
+}
+
+function renderFormPago(saldo) {
+  const inner = document.getElementById('formPagoInner');
+  if (!inner) return;
+  const esAbono = tabPagoActual === 'abono';
+  inner.innerHTML = `
+    <div class="mp-g" id="mpGPago">${METODOS.map(m=>`<div class="mp-i" onclick="setMP(this,'${m}')">${m}</div>`).join('')}</div>
+    <div class="pcr">
+      <label>${esAbono?'Valor del abono $':'Valor saldo final $'}</label>
+      <input type="number" id="vPago" placeholder="${esAbono?'0':Math.round(saldo)}" value="${esAbono?'':Math.round(saldo)}" min="1"/>
+    </div>
+    <input type="text" id="notasPago" placeholder="Notas (opcional)"
+      style="width:100%;background:#0d0d14;border:1px solid rgba(255,255,255,0.08);border-radius:7px;padding:7px 10px;font-size:12px;color:#f1f0ec;outline:none;margin-bottom:8px;font-family:inherit"/>
+    <button class="${esAbono?'btn-abono':'btn-saldo'}" onclick="${esAbono?'guardarAbono()':'guardarSaldo()'}">
+      ${esAbono?'💛 Registrar abono':'✅ Registrar pago final y completar'}
+    </button>`;
+}
+
+function setMP(el,m) {
+  document.querySelectorAll('.mp-i').forEach(b=>b.classList.remove('sel'));
+  el.classList.add('sel'); mpModal=m;
+}
+
+async function guardarAbono() {
+  if (!mpModal) { toast('Selecciona el método de pago','error'); return; }
+  const val   = parseFloat(document.getElementById('vPago').value)||0;
+  const notas = document.getElementById('notasPago').value.trim();
+  if (val <= 0) { toast('Ingresa un valor válido','error'); return; }
+  const col  = new Date(Date.now()-5*60*60*1000);
+  const hora = col.toISOString().slice(11,16);
+  const fecha= col.toISOString().slice(0,10);
+  await sb.from('abonos').insert({
+    cita_id:citaActual.id, valor:val, metodo_pago:mpModal,
+    notas:notas||null, registrado_por:session.usuario, fecha, hora
+  });
+  if (citaActual.estado==='pendiente') {
+    await sb.from('citas').update({estado:'confirmada'}).eq('id',citaActual.id);
+  }
+  toast(`💛 Abono $${val.toLocaleString('es-CO')} registrado — cita confirmada`,'success');
+  cerrarCita(); await recargar();
+}
+
+async function guardarSaldo() {
+  if (!mpModal) { toast('Selecciona el método de pago','error'); return; }
+  const val   = parseFloat(document.getElementById('vPago').value)||0;
+  const notas = document.getElementById('notasPago').value.trim();
+  if (val <= 0) { toast('Ingresa un valor válido','error'); return; }
+  const col  = new Date(Date.now()-5*60*60*1000);
+  const hora = col.toISOString().slice(11,16);
+  const fecha= col.toISOString().slice(0,10);
+  const tot  = (citaActual.cita_servicios||[]).reduce((s,x)=>s+parseFloat(x.precio_unitario),0);
+  await sb.from('pagos').insert({
+    cita_id:citaActual.id, total_servicios:tot, valor_cobrado:val,
+    metodo_pago:mpModal, tipo:'saldo', registrado_por:session.usuario, fecha, hora
+  });
+  await sb.from('citas').update({estado:'completada'}).eq('id',citaActual.id);
+  toast(`✅ Pago final $${val.toLocaleString('es-CO')} — Cita completada`,'success');
+  cerrarCita(); await recargar();
+}
+
+async function registrarPago(){ await guardarSaldo(); }
+
+
 async function cambioEstado(id,estado,rec=true){
   await sb.from('citas').update({estado}).eq('id',id);
   if(rec){cerrarCita();toast('Estado actualizado');await recargar();}
