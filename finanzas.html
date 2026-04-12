@@ -204,54 +204,59 @@ let tabActual = 'dia';
 let pagosHist = [];
 
 // ── Unificar pagos + abonos en un solo array normalizado ─────────
-// Cada registro tiene: fecha, hora, valor, metodo_pago,
-//                      cita_id, tipo ('pago'|'abono'), y join de cita
 async function cargarMovimientos(filtros={}) {
   const { desde, hasta, metodo, estiId } = filtros;
 
-  // Construir queries con filtros de fecha
-  let qPagos  = sb.from('pagos')
-    .select('id,fecha,hora,valor_cobrado,metodo_pago,tipo,cita_id,citas(cliente_nombre,cita_servicios(nombre_servicio),estilistas(nombre,color))');
-  let qAbonos = sb.from('abonos')
-    .select('id,fecha,hora,valor,metodo_pago,cita_id,citas(cliente_nombre,cita_servicios(nombre_servicio),estilistas(nombre,color))');
+  // Query pagos
+  let qPagos = sb.from('pagos')
+    .select('id,fecha,hora,valor_cobrado,metodo_pago,cita_id,citas(cliente_nombre,cita_servicios(nombre_servicio),estilistas(nombre,color))');
+  if (desde)  qPagos = qPagos.gte('fecha', desde);
+  if (hasta)  qPagos = qPagos.lte('fecha', hasta);
+  if (metodo) qPagos = qPagos.eq('metodo_pago', metodo);
 
-  if (desde)  { qPagos=qPagos.gte('fecha',desde);   qAbonos=qAbonos.gte('fecha',desde); }
-  if (hasta)  { qPagos=qPagos.lte('fecha',hasta);   qAbonos=qAbonos.lte('fecha',hasta); }
-  if (metodo) { qPagos=qPagos.eq('metodo_pago',metodo); qAbonos=qAbonos.eq('metodo_pago',metodo); }
+  // Query abonos — envuelto en try/catch por si la tabla aún no existe
+  let movAbonos = [];
+  try {
+    let qAbonos = sb.from('abonos')
+      .select('id,fecha,hora,valor,metodo_pago,cita_id,citas(cliente_nombre,cita_servicios(nombre_servicio),estilistas(nombre,color))');
+    if (desde)  qAbonos = qAbonos.gte('fecha', desde);
+    if (hasta)  qAbonos = qAbonos.lte('fecha', hasta);
+    if (metodo) qAbonos = qAbonos.eq('metodo_pago', metodo);
+    const resAbonos = await qAbonos;
+    movAbonos = (resAbonos.data||[]).map(a => ({
+      id: 'a'+a.id, fecha: a.fecha, hora: a.hora||'00:00',
+      valor: parseFloat(a.valor)||0,
+      metodo_pago: a.metodo_pago,
+      tipo: 'abono',
+      cita_id: a.cita_id,
+      citas: a.citas
+    }));
+  } catch(e) { console.warn('abonos no disponibles:', e); }
 
-  const [resPagos, resAbonos] = await Promise.all([qPagos, qAbonos]);
-
-  // Normalizar pagos → {valor, tipo='pago', ...}
+  // Normalizar pagos
+  const resPagos = await qPagos;
   let movPagos = (resPagos.data||[]).map(p => ({
-    id: 'p'+p.id, fecha: p.fecha, hora: p.hora,
-    valor: parseFloat(p.valor_cobrado),
+    id: 'p'+p.id, fecha: p.fecha, hora: p.hora||'00:00',
+    valor: parseFloat(p.valor_cobrado)||0,
     metodo_pago: p.metodo_pago,
     tipo: 'pago',
     cita_id: p.cita_id,
     citas: p.citas
   }));
 
-  // Normalizar abonos → {valor, tipo='abono', ...}
-  let movAbonos = (resAbonos.data||[]).map(a => ({
-    id: 'a'+a.id, fecha: a.fecha, hora: a.hora,
-    valor: parseFloat(a.valor),
-    metodo_pago: a.metodo_pago,
-    tipo: 'abono',
-    cita_id: a.cita_id,
-    citas: a.citas
-  }));
-
-  // Combinar y ordenar por fecha desc, hora desc
+  // Combinar
   let todos = [...movPagos, ...movAbonos];
 
-  // Filtro por estilista (se hace en cliente porque es join)
+  // Filtro por estilista
   if (estiId) {
     const nombre = estilistas.find(e=>e.id==estiId)?.nombre;
     if (nombre) todos = todos.filter(m => m.citas?.estilistas?.nombre === nombre);
   }
 
+  // Ordenar fecha desc, hora desc
   todos.sort((a,b) => {
-    if (b.fecha !== a.fecha) return b.fecha.localeCompare(a.fecha);
+    const fc = b.fecha.localeCompare(a.fecha);
+    if (fc !== 0) return fc;
     return (b.hora||'').localeCompare(a.hora||'');
   });
 
