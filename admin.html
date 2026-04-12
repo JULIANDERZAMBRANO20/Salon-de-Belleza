@@ -119,6 +119,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <h2 id="tituloEstilista">Nueva estilista</h2>
     <input type="hidden" id="eId"/>
     <div class="fl">Nombre</div><input class="fi" type="text" id="eNombre" placeholder="Ej: Valentina"/>
+    <div class="fl" style="margin-top:10px">Correo electrónico</div><input class="fi" type="email" id="eEmail" placeholder="valentina@gmail.com"/>
     <div class="fl">Especialidad</div><input class="fi" type="text" id="eEspecialidad" placeholder="Ej: Colorimetría"/>
     <div class="fl">Color en el calendario</div>
     <div class="color-row" id="colorRow"></div>
@@ -236,7 +237,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   async function toggleUsuario(id,actual) { await sb.from('usuarios').update({activo:!actual}).eq('id',id); await cargarUsuarios(); }
 
   function abrirModalEstilista() {
-    ['eId','eNombre','eEspecialidad'].forEach(id=>document.getElementById(id).value='');
+    ['eId','eNombre','eEspecialidad','eEmail'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('eColor').value='#c084fc';
     document.querySelectorAll('.color-dot').forEach(d=>d.classList.remove('sel'));
     document.getElementById('tituloEstilista').textContent='Nueva estilista';
@@ -248,6 +249,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     document.getElementById('eId').value=id;
     document.getElementById('eNombre').value=data.nombre;
     document.getElementById('eEspecialidad').value=data.especialidad||'';
+    document.getElementById('eEmail').value=data.email||'';
     document.getElementById('eColor').value=data.color||'#c084fc';
     document.getElementById('tituloEstilista').textContent='Editar estilista';
     document.getElementById('modalEstilista').classList.add('show');
@@ -259,8 +261,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     const especialidad=document.getElementById('eEspecialidad').value.trim();
     const color=document.getElementById('eColor').value;
     if (!nombre) { toast('Ingresa el nombre','error'); return; }
-    if (id) await sb.from('estilistas').update({nombre,especialidad:especialidad||null,color}).eq('id',id);
-    else await sb.from('estilistas').insert({nombre,especialidad:especialidad||null,color});
+    const email=document.getElementById('eEmail').value.trim();
+    if (id) await sb.from('estilistas').update({nombre,especialidad:especialidad||null,color,email:email||null}).eq('id',id);
+    else await sb.from('estilistas').insert({nombre,especialidad:especialidad||null,color,email:email||null});
     toast('✦ Estilista guardada','success');
     document.getElementById('modalEstilista').classList.remove('show');
     await cargarEstilistas();
