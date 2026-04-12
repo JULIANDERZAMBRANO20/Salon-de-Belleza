@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Salón · Nueva Cita</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d0d14;color:#f1f0ec;min-height:100vh}
@@ -209,6 +210,39 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   let clientes = [];
 
   const METODOS = ['Efectivo','Nequi','Daviplata','Transferencia','Tarjeta débito','Tarjeta crédito'];
+
+  // ── EmailJS — Notificaciones ─────────────────────────────────────
+  // ⚠️ REEMPLAZA con tus datos de EmailJS (ver instrucciones en README)
+  const EJS_PUBLIC_KEY    = 'cNsQz1Z74DCnPeVHV';
+  const EJS_SERVICE_ID    = 'service_nnwhllz';
+  const EJS_TEMPLATE_ID   = 'template_89r67r7';
+
+  function iniciarEmailJS() {
+    try { emailjs.init(EJS_PUBLIC_KEY); } catch(e) {}
+  }
+
+  async function enviarNotificacionEstilista({ emailEstilista, nombreEstilista, clienteNombre, clienteTel, fecha, horaInicio, horaFin, servicios, origen }) {
+    if (!emailEstilista) return; // sin email registrado, omitir
+    if (EJS_PUBLIC_KEY === 'TU_EMAILJS_PUBLIC_KEY') return; // sin configurar, omitir silenciosamente
+    const diasSemana = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+    const d = new Date(fecha+'T12:00:00Z');
+    const fechaLegible = `${diasSemana[d.getUTCDay()]} ${d.getUTCDate()}/${d.getUTCMonth()+1}/${d.getUTCFullYear()}`;
+    try {
+      await emailjs.send(EJS_SERVICE_ID, EJS_TEMPLATE_ID, {
+        to_email:        emailEstilista,
+        to_name:         nombreEstilista,
+        cliente_nombre:  clienteNombre,
+        cliente_tel:     clienteTel || 'No registrado',
+        fecha:           fechaLegible,
+        hora_inicio:     horaInicio,
+        hora_fin:        horaFin,
+        servicios:       servicios,
+        origen:          origen === 'online' ? 'Agendamiento online (cliente)' : 'Sistema interno',
+      });
+    } catch(err) {
+      console.warn('EmailJS error (no crítico):', err);
+    }
+  }
   const METODO_ICO = {'Efectivo':'💵','Nequi':'📱','Daviplata':'📲','Transferencia':'🏦','Tarjeta débito':'💳','Tarjeta crédito':'💳'};
 
   window.addEventListener('load', async () => {
@@ -227,6 +261,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     const mmF = String(mm >= 60 ? 0 : mm).padStart(2, '0');
     document.getElementById('horaInicio').value = `${hhF}:${mmF}`;
 
+    iniciarEmailJS();
     await Promise.all([cargarCatalogo(), cargarEstilistas(), cargarMetodos(), cargarClientes()]);
   });
 
@@ -261,8 +296,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     });
   }
 
+  let estilistasData = [];
   async function cargarEstilistas() {
     const { data } = await sb.from('estilistas').select('*').eq('activo', true).order('nombre');
+    estilistasData = data || [];
     const sel = document.getElementById('estilista');
     (data || []).forEach(e => {
       const opt = document.createElement('option');
@@ -565,6 +602,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
       toast('✦ Cita guardada — ' + clienteNombre, 'success');
       limpiarTodo();
+
+      // ── Notificación por email a la estilista ──────────────────
+      const estiData = estilistasData.find(e => e.id === parseInt(estiId));
+      if (estiData?.email) {
+        const serviciosTexto = items.map(([,s]) => `${s.nombre} ($${parseInt(s.precio).toLocaleString('es-CO')})`).join(', ');
+        enviarNotificacionEstilista({
+          emailEstilista: estiData.email,
+          nombreEstilista: estiData.nombre,
+          clienteNombre, clienteTel,
+          fecha, horaInicio: hIni, horaFin: hFin,
+          servicios: serviciosTexto,
+          origen: 'interno'
+        });
+      }
     } catch(e) {
       toast('Error al guardar. Intenta de nuevo.', 'error');
     } finally {
