@@ -460,11 +460,9 @@ function renderMes(){
 function irADia(fStr){const[y,m,d]=fStr.split('-').map(Number);FA=new Date(Date.UTC(y,m-1,d));setVista('dia');}
 function irADiaDetalle(fStr,citaId,y,m,d){FA=new Date(Date.UTC(y,m,d));setVista('dia');setTimeout(()=>detalle(citaId),700);}
 
-// ── Modal cita ────────────────────────────────────────────────────
-// ── Modal cita — Con sistema de abonos completo ─────────────────
+// ── Modal cita — Con sistema de abonos ───────────────────────────
 function nuevaCita(fecha,hora,estiId){sessionStorage.setItem('nueva_cita_pre',JSON.stringify({fecha,hora,estiId}));window.location.href='agendar.html';}
-
-let mpModal=null, tabPagoActual='abono';
+let tabPagoActual='abono';
 
 async function detalle(id){
   const [resCita, resAbonos] = await Promise.all([
