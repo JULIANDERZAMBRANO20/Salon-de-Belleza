@@ -188,9 +188,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     const total       = (citas||[]).length;
     const completadas = (citas||[]).filter(c => c.estado === 'completada').length;
     const pendientes  = (citas||[]).filter(c => c.estado === 'pendiente' || c.estado === 'confirmada').length;
-    const ingresos    = (citas||[]).reduce((s, c) => {
+    const ingresosPagos = (citas||[]).reduce((s, c) => {
       const p = c.pagos?.[0]; return s + (p ? parseFloat(p.valor_cobrado) : 0);
     }, 0);
+    let ingresosAbonos = 0;
+    try {
+      const { data: ab } = await sb.from('abonos').select('valor').eq('fecha', HOY);
+      ingresosAbonos = (ab||[]).reduce((s,a)=>s+parseFloat(a.valor||0),0);
+    } catch(e) {}
+    const ingresos = ingresosPagos + ingresosAbonos;
 
     document.getElementById('kpisHoy').innerHTML = `
       <div class="kpi"><div class="kpi-label">Citas hoy</div><div class="kpi-val" style="color:#60a5fa">${total}</div></div>
@@ -244,7 +250,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     const completadas = (citas||[]).filter(c => c.estado === 'completada').length;
     const canceladas  = (citas||[]).filter(c => c.estado === 'cancelada').length;
     const pendientes  = (citas||[]).filter(c => c.estado === 'pendiente' || c.estado === 'confirmada').length;
-    const ingresos    = (pagosMes||[]).reduce((s, p) => s + parseFloat(p.valor_cobrado), 0);
+    const ingresosPagosMes = (pagosMes||[]).reduce((s, p) => s + parseFloat(p.valor_cobrado), 0);
+    let ingresosAbonosMes = 0;
+    try {
+      const { data: abMes } = await sb.from('abonos').select('valor').gte('fecha', primerDia).lte('fecha', ultimoDia);
+      ingresosAbonosMes = (abMes||[]).reduce((s,a)=>s+parseFloat(a.valor||0),0);
+    } catch(e) {}
+    const ingresos = ingresosPagosMes + ingresosAbonosMes;
 
     const mesesNombre = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
     document.getElementById('kpisMes').innerHTML = `
@@ -286,53 +298,61 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     document.getElementById('citasMes').innerHTML = (itemsMes || '<div class="empty-state">Sin citas este mes</div>') + metodosHtml;
   }
 
-  // ── Tab Pagos ─────────────────────────────────────────────────────
+  // ── Tab Pagos — incluye pagos completos y abonos ─────────────────
   async function cargarPagos() {
-    // Pagos de hoy — consulta directa por fecha Colombia
-    const { data: pagosHoy } = await sb.from('pagos')
-      .select('*, citas(cliente_nombre, estilistas(nombre))')
-      .eq('fecha', HOY)
-      .order('hora', { ascending: false });
-
-    // Resumen por método
-    const porMetodo = {};
-    (pagosHoy||[]).forEach(p => {
-      if (!porMetodo[p.metodo_pago]) porMetodo[p.metodo_pago] = { total:0, cnt:0 };
-      porMetodo[p.metodo_pago].total += parseFloat(p.valor_cobrado);
-      porMetodo[p.metodo_pago].cnt++;
-    });
-
-    const totalHoy = (pagosHoy||[]).reduce((s, p) => s + parseFloat(p.valor_cobrado), 0);
     const ICOS = {'Efectivo':'💵','Nequi':'📱','Daviplata':'📲','Transferencia':'🏦','Tarjeta débito':'💳','Tarjeta crédito':'💳'};
 
-    // KPI total del día
-    document.getElementById('pagosMetodoHoy').innerHTML = Object.entries(porMetodo).length
+    // Cargar pagos y abonos del día en paralelo
+    const [resPagos, resAbonos] = await Promise.all([
+      sb.from('pagos').select('*,citas(cliente_nombre,estilistas(nombre))').eq('fecha', HOY).order('hora',{ascending:false}),
+      sb.from('abonos').select('*,citas(cliente_nombre,estilistas(nombre))').eq('fecha', HOY).order('hora',{ascending:false}).catch(()=>({data:[]}))
+    ]);
+
+    // Normalizar ambos en un solo array
+    const movimientos = [
+      ...(resPagos.data||[]).map(p=>({ valor: parseFloat(p.valor_cobrado)||0, metodo_pago: p.metodo_pago, hora: p.hora, tipo: 'pago', citas: p.citas })),
+      ...(resAbonos.data||[]).map(a=>({ valor: parseFloat(a.valor)||0,         metodo_pago: a.metodo_pago, hora: a.hora, tipo: 'abono', citas: a.citas }))
+    ].sort((a,b) => (b.hora||'').localeCompare(a.hora||''));
+
+    // Resumen por método (pagos + abonos juntos)
+    const porMetodo = {};
+    movimientos.forEach(m => {
+      if (!porMetodo[m.metodo_pago]) porMetodo[m.metodo_pago] = { total:0, cnt:0 };
+      porMetodo[m.metodo_pago].total += m.valor;
+      porMetodo[m.metodo_pago].cnt++;
+    });
+
+    const totalHoy = movimientos.reduce((s,m) => s + m.valor, 0);
+    const nAbonos  = movimientos.filter(m=>m.tipo==='abono').length;
+
+    document.getElementById('pagosMetodoHoy').innerHTML = movimientos.length
       ? `<div class="pago-card" style="grid-column:1/-1;background:rgba(167,139,250,0.08);border-color:rgba(167,139,250,0.2)">
            <div class="pago-metodo">💰 Total recaudado hoy</div>
            <div class="pago-val" style="font-size:24px">$${totalHoy.toLocaleString('es-CO')}</div>
-           <div class="pago-cant">${(pagosHoy||[]).length} pago${(pagosHoy||[]).length!==1?'s':''}</div>
+           <div class="pago-cant">${movimientos.length} movimiento${movimientos.length!==1?'s':''}${nAbonos?` · ${nAbonos} abono${nAbonos!==1?'s':''}`:''}
+           </div>
          </div>
          ${Object.entries(porMetodo).map(([m,v]) =>
            `<div class="pago-card">
               <div class="pago-metodo">${ICOS[m]||'💰'} ${m}</div>
               <div class="pago-val">$${v.total.toLocaleString('es-CO')}</div>
-              <div class="pago-cant">${v.cnt} pago${v.cnt!==1?'s':''}</div>
+              <div class="pago-cant">${v.cnt} mov.</div>
             </div>`).join('')}`
-      : '<p style="color:#4b5563;font-size:13px;padding:8px 0">Sin pagos registrados hoy</p>';
+      : '<p style="color:#4b5563;font-size:13px;padding:8px 0">Sin movimientos hoy</p>';
 
-    document.getElementById('ultimosPagos').innerHTML = (pagosHoy||[]).length
-      ? pagosHoy.slice(0, 20).map(p => `
+    document.getElementById('ultimosPagos').innerHTML = movimientos.length
+      ? movimientos.slice(0, 20).map(m => `
           <div class="pago-row">
             <div class="pr-left">
-              <div class="pr-cliente">${p.citas?.cliente_nombre||'—'}</div>
-              <div class="pr-meta">${p.hora?.slice(0,5)||''} · ${p.citas?.estilistas?.nombre||''}</div>
+              <div class="pr-cliente">${m.citas?.cliente_nombre||'—'}${m.tipo==='abono'?'<span style="font-size:10px;background:rgba(251,191,36,0.15);color:#fbbf24;padding:1px 6px;border-radius:4px;margin-left:4px">abono</span>':''}</div>
+              <div class="pr-meta">${m.hora?.slice(0,5)||''} · ${m.citas?.estilistas?.nombre||''}</div>
             </div>
             <div class="pr-right">
-              <div class="pr-val">$${parseInt(p.valor_cobrado).toLocaleString('es-CO')}</div>
-              <div class="pr-mp">${p.metodo_pago}</div>
+              <div class="pr-val">$${m.valor.toLocaleString('es-CO')}</div>
+              <div class="pr-mp">${m.metodo_pago}</div>
             </div>
           </div>`).join('')
-      : '<div class="empty-state">Sin pagos hoy</div>';
+      : '<div class="empty-state">Sin movimientos hoy</div>';
   }
 
   function traducirEstado(e) {
