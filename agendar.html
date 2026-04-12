@@ -121,6 +121,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="fl">Teléfono</div>
       <input class="fi" type="tel" id="clienteTel" placeholder="Ej: 300 123 4567"/>
     </div>
+    <div class="fg">
+      <div class="fl">Email del cliente <span style="color:#4b5563;font-weight:400">(para confirmación)</span></div>
+      <input class="fi" type="email" id="clienteEmail" placeholder="cliente@gmail.com"/>
+    </div>
 
     <!-- Fecha, hora y estilista -->
     <div class="fg2">
@@ -213,35 +217,50 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
   // ── EmailJS — Notificaciones ─────────────────────────────────────
   // ⚠️ REEMPLAZA con tus datos de EmailJS (ver instrucciones en README)
-  const EJS_PUBLIC_KEY    = 'cNsQz1Z74DCnPeVHV';
-  const EJS_SERVICE_ID    = 'service_nnwhllz';
-  const EJS_TEMPLATE_ID   = 'template_89r67r7';
+  const EJS_PUBLIC_KEY    = 'TU_EMAILJS_PUBLIC_KEY';
+  const EJS_SERVICE_ID    = 'TU_EMAILJS_SERVICE_ID';
+  const EJS_TEMPLATE_ID   = 'TU_EMAILJS_TEMPLATE_ID';
 
   function iniciarEmailJS() {
     try { emailjs.init(EJS_PUBLIC_KEY); } catch(e) {}
   }
 
   async function enviarNotificacionEstilista({ emailEstilista, nombreEstilista, clienteNombre, clienteTel, fecha, horaInicio, horaFin, servicios, origen }) {
-    if (!emailEstilista) return; // sin email registrado, omitir
-    if (EJS_PUBLIC_KEY === 'TU_EMAILJS_PUBLIC_KEY') return; // sin configurar, omitir silenciosamente
+    if (!emailEstilista) return;
+    if (EJS_PUBLIC_KEY === 'TU_EMAILJS_PUBLIC_KEY') return;
     const diasSemana = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
     const d = new Date(fecha+'T12:00:00Z');
     const fechaLegible = `${diasSemana[d.getUTCDay()]} ${d.getUTCDate()}/${d.getUTCMonth()+1}/${d.getUTCFullYear()}`;
     try {
       await emailjs.send(EJS_SERVICE_ID, EJS_TEMPLATE_ID, {
-        to_email:        emailEstilista,
-        to_name:         nombreEstilista,
-        cliente_nombre:  clienteNombre,
-        cliente_tel:     clienteTel || 'No registrado',
-        fecha:           fechaLegible,
-        hora_inicio:     horaInicio,
-        hora_fin:        horaFin,
-        servicios:       servicios,
-        origen:          origen === 'online' ? 'Agendamiento online (cliente)' : 'Sistema interno',
+        to_email: emailEstilista, to_name: nombreEstilista,
+        cliente_nombre: clienteNombre, cliente_tel: clienteTel || 'No registrado',
+        fecha: fechaLegible, hora_inicio: horaInicio, hora_fin: horaFin,
+        servicios, origen: origen === 'online' ? 'Agendamiento online (cliente)' : 'Sistema interno',
       });
-    } catch(err) {
-      console.warn('EmailJS error (no crítico):', err);
-    }
+    } catch(err) { console.warn('EmailJS estilista:', err); }
+  }
+
+  // ⚠️ Para email al CLIENTE necesitas una segunda plantilla en EmailJS
+  // Puedes usar EJS_TEMPLATE_CLIENTE_ID si la creas, o la misma adaptada
+  const EJS_TEMPLATE_CLIENTE_ID = 'TU_EMAILJS_TEMPLATE_CLIENTE_ID';
+
+  async function enviarConfirmacionCliente({ emailCliente, clienteNombre, nombreEstilista, fecha, horaInicio, horaFin, servicios }) {
+    if (!emailCliente) return;
+    if (EJS_PUBLIC_KEY === 'TU_EMAILJS_PUBLIC_KEY') return;
+    const templateId = EJS_TEMPLATE_CLIENTE_ID !== 'TU_EMAILJS_TEMPLATE_CLIENTE_ID'
+      ? EJS_TEMPLATE_CLIENTE_ID : EJS_TEMPLATE_ID;
+    const diasSemana = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+    const d = new Date(fecha+'T12:00:00Z');
+    const fechaLegible = `${diasSemana[d.getUTCDay()]} ${d.getUTCDate()}/${d.getUTCMonth()+1}/${d.getUTCFullYear()}`;
+    try {
+      await emailjs.send(EJS_SERVICE_ID, templateId, {
+        to_email: emailCliente, to_name: clienteNombre,
+        cliente_nombre: clienteNombre, to_name_estilista: nombreEstilista,
+        fecha: fechaLegible, hora_inicio: horaInicio, hora_fin: horaFin,
+        servicios, origen: 'Confirmación de tu cita',
+      });
+    } catch(err) { console.warn('EmailJS cliente:', err); }
   }
   const METODO_ICO = {'Efectivo':'💵','Nequi':'📱','Daviplata':'📲','Transferencia':'🏦','Tarjeta débito':'💳','Tarjeta crédito':'💳'};
 
@@ -566,8 +585,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     try {
       // Guardar o actualizar cliente
       let cliId = clienteId;
+      const clienteEmail = document.getElementById('clienteEmail')?.value?.trim()||null;
       if (!cliId) {
-        const { data: cliData } = await sb.from('clientes').insert({ nombre: clienteNombre, telefono: clienteTel || null }).select('id').single();
+        const { data: cliData } = await sb.from('clientes').insert({ nombre: clienteNombre, telefono: clienteTel || null, email: clienteEmail }).select('id').single();
         cliId = cliData?.id || null;
         await cargarClientes();
       } else if (clienteTel) {
@@ -605,15 +625,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
       // ── Notificación por email a la estilista ──────────────────
       const estiData = estilistasData.find(e => e.id === parseInt(estiId));
+      const serviciosTexto = items.map(([,s]) => `${s.nombre} ($${parseInt(s.precio).toLocaleString('es-CO')})`).join(', ');
       if (estiData?.email) {
-        const serviciosTexto = items.map(([,s]) => `${s.nombre} ($${parseInt(s.precio).toLocaleString('es-CO')})`).join(', ');
         enviarNotificacionEstilista({
-          emailEstilista: estiData.email,
-          nombreEstilista: estiData.nombre,
-          clienteNombre, clienteTel,
+          emailEstilista: estiData.email, nombreEstilista: estiData.nombre,
+          clienteNombre, clienteTel, fecha, horaInicio: hIni, horaFin: hFin,
+          servicios: serviciosTexto, origen: 'interno'
+        });
+      }
+      // ── Notificación por email al cliente ───────────────────────
+      const clienteEmailVal = document.getElementById('clienteEmail').value.trim();
+      if (clienteEmailVal) {
+        enviarConfirmacionCliente({
+          emailCliente: clienteEmailVal, clienteNombre,
+          nombreEstilista: estiData?.nombre || 'Por asignar',
           fecha, horaInicio: hIni, horaFin: hFin,
-          servicios: serviciosTexto,
-          origen: 'interno'
+          servicios: serviciosTexto
         });
       }
     } catch(e) {
@@ -628,6 +655,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     metodoPago = null;
     clienteId = null;
     document.getElementById('clienteInput').value = '';
+    if(document.getElementById('clienteEmail')) document.getElementById('clienteEmail').value = '';
     document.getElementById('clienteTel').value = '';
     document.getElementById('notas').value = '';
     document.getElementById('estadoCita').value = 'pendiente';
