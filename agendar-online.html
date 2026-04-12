@@ -77,6 +77,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <input class="fi" type="text" id="nombre" placeholder="Ej: María García"/>
       <div class="fl">Teléfono / WhatsApp *</div>
       <input class="fi" type="tel" id="telefono" placeholder="Ej: 300 123 4567"/>
+      <div class="fl" style="margin-top:8px">Correo electrónico <span style="color:#9ca3af;font-weight:400">(para recibir confirmación)</span></div>
+      <input class="fi" type="email" id="emailCliente" placeholder="tu@email.com"/>
     </div>
 
     <!-- Paso 2: Servicios -->
@@ -133,10 +135,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   let horaSeleccionada = null;
   // HORARIOS ahora se generan dinámicamente desde configuracion del salón en cargarDisponibilidad()
 
-  // ⚠️ REEMPLAZA con tus datos de EmailJS (ver instrucciones en README)
-  const EJS_PUBLIC_KEY    = 'cNsQz1Z74DCnPeVHV';
-  const EJS_SERVICE_ID    = 'service_nnwhllz';
-  const EJS_TEMPLATE_ID   = 'template_89r67r7';
+  // ── EmailJS — Notificaciones ─────────────────────────────────────
+  const EJS_PUBLIC_KEY  = 'TU_EMAILJS_PUBLIC_KEY';
+  const EJS_SERVICE_ID  = 'TU_EMAILJS_SERVICE_ID';
+  const EJS_TEMPLATE_ID = 'TU_EMAILJS_TEMPLATE_ID';
 
   function iniciarEmailJS() {
     try { emailjs.init(EJS_PUBLIC_KEY); } catch(e) {}
@@ -155,7 +157,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         fecha: fechaLegible, hora_inicio: horaInicio, hora_fin: horaFin,
         servicios, origen: 'Agendamiento online (cliente)',
       });
-    } catch(err) { console.warn('EmailJS:', err); }
+    } catch(err) { console.warn('EmailJS estilista:', err); }
+  }
+
+  const EJS_TEMPLATE_CLIENTE_ID = 'TU_EMAILJS_TEMPLATE_CLIENTE_ID';
+
+  async function enviarConfirmacionCliente({ emailCliente, clienteNombre, nombreEstilista, fecha, horaInicio, horaFin, servicios }) {
+    if (!emailCliente) return;
+    if (EJS_PUBLIC_KEY === 'TU_EMAILJS_PUBLIC_KEY') return;
+    const templateId = EJS_TEMPLATE_CLIENTE_ID !== 'TU_EMAILJS_TEMPLATE_CLIENTE_ID'
+      ? EJS_TEMPLATE_CLIENTE_ID : EJS_TEMPLATE_ID;
+    const diasSemana = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+    const d = new Date(fecha+'T12:00:00Z');
+    const fechaLegible = `${diasSemana[d.getUTCDay()]} ${d.getUTCDate()}/${d.getUTCMonth()+1}/${d.getUTCFullYear()}`;
+    try {
+      await emailjs.send(EJS_SERVICE_ID, templateId, {
+        to_email: emailCliente, to_name: clienteNombre,
+        cliente_nombre: clienteNombre, to_name_estilista: nombreEstilista,
+        fecha: fechaLegible, hora_inicio: horaInicio, hora_fin: horaFin,
+        servicios, origen: 'Confirmación de tu cita',
+      });
+    } catch(err) { console.warn('EmailJS cliente:', err); }
   }
 
   window.addEventListener('load', async () => {
@@ -425,7 +447,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     document.getElementById('textoConfirmar').style.display='none';
     try {
       const horaCol = new Date(Date.now() - 5*60*60*1000).toISOString().slice(11,16);
-      const { data: cliData } = await sb.from('clientes').insert({nombre,telefono:tel}).select('id').single();
+      const emailCli = document.getElementById('emailCliente')?.value?.trim()||null;
+      const { data: cliData } = await sb.from('clientes').insert({nombre,telefono:tel,email:emailCli}).select('id').single();
       const { data: citaData, error } = await sb.from('citas').insert({
         cliente_id:cliData?.id, cliente_nombre:nombre, cliente_tel:tel,
         estilista_id:estiAsignado, fecha, hora_inicio:horaSeleccionada, hora_fin:hFin,
@@ -452,11 +475,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
           });
         }
       }
+      // ── Email de confirmación al cliente ─────────────────────
+      const emailClienteVal = document.getElementById('emailCliente')?.value?.trim();
+      const estiAsignadoData = estilistas.find(e=>e.id===estiAsignado);
+      if (emailClienteVal) {
+        const serviciosTxt = Object.values(serviciosSeleccionados)
+          .map(s=>`${s.nombre} ($${parseInt(s.precio).toLocaleString('es-CO')})`).join(', ');
+        enviarConfirmacionCliente({
+          emailCliente: emailClienteVal, clienteNombre: nombre,
+          nombreEstilista: estiAsignadoData?.nombre || 'Por asignar',
+          fecha, horaInicio: horaSeleccionada, horaFin: hFin,
+          servicios: serviciosTxt
+        });
+      }
       document.getElementById('formSection').style.display='none';
       const successCard = document.getElementById('successCard');
       const esti = estilistas.find(e=>e.id===estiAsignado);
+      const emailCVal = document.getElementById('emailCliente')?.value?.trim();
       document.getElementById('successMsg').innerHTML =
-        `Tu cita está agendada para el <strong>${fecha}</strong> a las <strong>${horaSeleccionada}</strong>.<br/>${esti?'Estilista: <strong>'+esti.nombre+'</strong><br/>':''}Te esperamos 🌸`;
+        `Tu cita está agendada para el <strong>${fecha}</strong> a las <strong>${horaSeleccionada}</strong>.<br/>${estiAsignadoData?'Estilista: <strong>'+estiAsignadoData.nombre+'</strong><br/>':''}${emailCVal?'<br/>📧 Se envió confirmación a <strong>'+emailCVal+'</strong>':''}Te esperamos 🌸`;
       successCard.classList.add('show');
     } catch(e) {
       alert('Error al agendar. Intenta de nuevo.');
