@@ -203,6 +203,61 @@ let estilistas = [];
 let tabActual = 'dia';
 let pagosHist = [];
 
+// ── Unificar pagos + abonos en un solo array normalizado ─────────
+// Cada registro tiene: fecha, hora, valor, metodo_pago,
+//                      cita_id, tipo ('pago'|'abono'), y join de cita
+async function cargarMovimientos(filtros={}) {
+  const { desde, hasta, metodo, estiId } = filtros;
+
+  // Construir queries con filtros de fecha
+  let qPagos  = sb.from('pagos')
+    .select('id,fecha,hora,valor_cobrado,metodo_pago,tipo,cita_id,citas(cliente_nombre,cita_servicios(nombre_servicio),estilistas(nombre,color))');
+  let qAbonos = sb.from('abonos')
+    .select('id,fecha,hora,valor,metodo_pago,cita_id,citas(cliente_nombre,cita_servicios(nombre_servicio),estilistas(nombre,color))');
+
+  if (desde)  { qPagos=qPagos.gte('fecha',desde);   qAbonos=qAbonos.gte('fecha',desde); }
+  if (hasta)  { qPagos=qPagos.lte('fecha',hasta);   qAbonos=qAbonos.lte('fecha',hasta); }
+  if (metodo) { qPagos=qPagos.eq('metodo_pago',metodo); qAbonos=qAbonos.eq('metodo_pago',metodo); }
+
+  const [resPagos, resAbonos] = await Promise.all([qPagos, qAbonos]);
+
+  // Normalizar pagos → {valor, tipo='pago', ...}
+  let movPagos = (resPagos.data||[]).map(p => ({
+    id: 'p'+p.id, fecha: p.fecha, hora: p.hora,
+    valor: parseFloat(p.valor_cobrado),
+    metodo_pago: p.metodo_pago,
+    tipo: 'pago',
+    cita_id: p.cita_id,
+    citas: p.citas
+  }));
+
+  // Normalizar abonos → {valor, tipo='abono', ...}
+  let movAbonos = (resAbonos.data||[]).map(a => ({
+    id: 'a'+a.id, fecha: a.fecha, hora: a.hora,
+    valor: parseFloat(a.valor),
+    metodo_pago: a.metodo_pago,
+    tipo: 'abono',
+    cita_id: a.cita_id,
+    citas: a.citas
+  }));
+
+  // Combinar y ordenar por fecha desc, hora desc
+  let todos = [...movPagos, ...movAbonos];
+
+  // Filtro por estilista (se hace en cliente porque es join)
+  if (estiId) {
+    const nombre = estilistas.find(e=>e.id==estiId)?.nombre;
+    if (nombre) todos = todos.filter(m => m.citas?.estilistas?.nombre === nombre);
+  }
+
+  todos.sort((a,b) => {
+    if (b.fecha !== a.fecha) return b.fecha.localeCompare(a.fecha);
+    return (b.hora||'').localeCompare(a.hora||'');
+  });
+
+  return todos;
+}
+
 // ── Chart.js defaults ─────────────────────────────────────────────
 Chart.defaults.color = '#6b7280';
 Chart.defaults.borderColor = 'rgba(255,255,255,0.06)';
@@ -253,7 +308,8 @@ function renderKPIs(containerId, items) {
 
 function renderMetodos(containerId, pagos) {
   const por = {};
-  pagos.forEach(p=>{ if(!por[p.metodo_pago]) por[p.metodo_pago]={t:0,n:0}; por[p.metodo_pago].t+=parseFloat(p.valor_cobrado); por[p.metodo_pago].n++; });
+  // Acepta tanto p.valor (movimientos unificados) como p.valor_cobrado (pagos legacy)
+  pagos.forEach(p=>{ const v=p.valor??parseFloat(p.valor_cobrado??0); if(!por[p.metodo_pago]) por[p.metodo_pago]={t:0,n:0}; por[p.metodo_pago].t+=v; por[p.metodo_pago].n++; });
   const total = Object.values(por).reduce((s,x)=>s+x.t, 0);
   document.getElementById(containerId).innerHTML = Object.entries(por).length
     ? Object.entries(por).sort((a,b)=>b[1].t-a[1].t).map(([m,v])=>`
@@ -272,7 +328,8 @@ function renderEstilistas(tbodyId, pagosConCita) {
     const n = p.citas?.estilistas?.nombre || 'Sin asignar';
     const col = p.citas?.estilistas?.color || '#6b7280';
     if (!por[n]) por[n]={t:0,n:0,col};
-    por[n].t += parseFloat(p.valor_cobrado); por[n].n++;
+    const v = p.valor ?? parseFloat(p.valor_cobrado ?? 0);
+    por[n].t += v; por[n].n++;
   });
   const rows = Object.entries(por).sort((a,b)=>b[1].t-a[1].t);
   document.getElementById(tbodyId).innerHTML = rows.length
@@ -283,29 +340,30 @@ function renderEstilistas(tbodyId, pagosConCita) {
 function renderTxTable(tbodyId, pagos) {
   const tbody = document.getElementById(tbodyId);
   if (!pagos.length) { tbody.innerHTML=`<tr><td colspan="6" class="empty-hist">Sin transacciones</td></tr>`; return; }
-  tbody.innerHTML = pagos.map(p=>`
-    <tr>
+  tbody.innerHTML = pagos.map(p=>{
+    const v = p.valor ?? parseFloat(p.valor_cobrado ?? 0);
+    const tipoBadge = p.tipo==='abono'
+      ? `<span style="font-size:9px;background:rgba(251,191,36,0.15);color:#fbbf24;padding:1px 5px;border-radius:4px;margin-left:4px">abono</span>`
+      : '';
+    return `<tr>
       <td class="td-fecha">${p.hora?.slice(0,5)||'—'}</td>
-      <td class="td-cli">${p.citas?.cliente_nombre||'—'}</td>
+      <td class="td-cli">${p.citas?.cliente_nombre||'—'}${tipoBadge}</td>
       <td class="td-serv">${(p.citas?.cita_servicios||[]).map(s=>s.nombre_servicio).join(', ')||'—'}</td>
       <td class="td-esti">${p.citas?.estilistas?.nombre||'—'}</td>
       <td class="td-mp"><span class="mp-pill">${ICOS[p.metodo_pago]||''} ${p.metodo_pago}</span></td>
-      <td class="td-val">${fmt(p.valor_cobrado)}</td>
-    </tr>`).join('');
+      <td class="td-val">${fmt(v)}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ─────────────────────────────────────────────────────────────────
 // TAB HOY
 // ─────────────────────────────────────────────────────────────────
 async function cargarDia() {
-  const { data: pagos } = await sb.from('pagos')
-    .select('*,citas(cliente_nombre,cita_servicios(nombre_servicio),estilistas(nombre,color))')
-    .eq('fecha', HOY).order('hora');
-
-  const P = pagos||[];
-  const total   = P.reduce((s,p)=>s+parseFloat(p.valor_cobrado),0);
-  const totalS  = P.reduce((s,p)=>s+parseFloat(p.total_servicios),0);
-  const dif     = total - totalS;
+  const P = await cargarMovimientos({ desde: HOY, hasta: HOY });
+  const total  = P.reduce((s,p)=>s+p.valor, 0);
+  const totalS = P.reduce((s,p)=> p.tipo==='pago' ? s+parseFloat(p.citas?(()=>{try{return (p.citas.cita_servicios||[]).reduce((x,cs)=>x+parseFloat(cs.precio_unitario||0),0)}catch(e){return 0}})()):0 : 0, 0);
+  const dif = 0; // Con abonos el diferencial no aplica igual
 
   renderKPIs('kDia',[
     {label:'Total recaudado hoy', val:fmt(total), color:'#4ade80'},
@@ -323,7 +381,7 @@ async function cargarDia() {
   // Gráfica: ingresos por hora
   destroyChart('chartHoras');
   const porHora = {};
-  P.forEach(p=>{ const h=(p.hora||'00').slice(0,2)+':00'; if(!porHora[h]) porHora[h]=0; porHora[h]+=parseFloat(p.valor_cobrado); });
+  P.forEach(p=>{ const h=(p.hora||'00').slice(0,2)+':00'; if(!porHora[h]) porHora[h]=0; porHora[h]+=(p.valor??parseFloat(p.valor_cobrado??0)); });
   const hLabels = Object.keys(porHora).sort();
   charts['chartHoras'] = new Chart(document.getElementById('chartHoras'),{
     type:'bar',
@@ -333,7 +391,7 @@ async function cargarDia() {
 
   // Gráfica: torta métodos pago
   destroyChart('chartMpDia');
-  const por={};P.forEach(p=>{if(!por[p.metodo_pago])por[p.metodo_pago]=0;por[p.metodo_pago]+=parseFloat(p.valor_cobrado);});
+  const por={};P.forEach(p=>{if(!por[p.metodo_pago])por[p.metodo_pago]=0;por[p.metodo_pago]+=(p.valor??parseFloat(p.valor_cobrado??0));});
   if(Object.keys(por).length>0){
     charts['chartMpDia']=new Chart(document.getElementById('chartMpDia'),{
       type:'doughnut',
@@ -347,12 +405,8 @@ async function cargarDia() {
 // TAB MES
 // ─────────────────────────────────────────────────────────────────
 async function cargarMes() {
-  const { data: pagos } = await sb.from('pagos')
-    .select('*,citas(cliente_nombre,cita_servicios(nombre_servicio),estilistas(nombre,color))')
-    .gte('fecha', MES+'-01').lte('fecha', ultimoDia).order('fecha');
-
-  const P = pagos||[];
-  const total = P.reduce((s,p)=>s+parseFloat(p.valor_cobrado),0);
+  const P = await cargarMovimientos({ desde: MES+'-01', hasta: ultimoDia });
+  const total   = P.reduce((s,p)=>s+p.valor, 0);
   const diasCon = [...new Set(P.map(p=>p.fecha))].length;
   const promDia = diasCon ? total/diasCon : 0;
 
@@ -369,7 +423,7 @@ async function cargarMes() {
   // Gráfica: ingresos por día
   destroyChart('chartDias');
   const porDia = {};
-  P.forEach(p=>{ if(!porDia[p.fecha]) porDia[p.fecha]=0; porDia[p.fecha]+=parseFloat(p.valor_cobrado); });
+  P.forEach(p=>{ if(!porDia[p.fecha]) porDia[p.fecha]=0; porDia[p.fecha]+=(p.valor??parseFloat(p.valor_cobrado??0)); });
   const dLabels = Object.keys(porDia).sort();
   charts['chartDias']=new Chart(document.getElementById('chartDias'),{
     type:'line',
@@ -379,7 +433,7 @@ async function cargarMes() {
 
   // Torta métodos
   destroyChart('chartMpMes');
-  const por={};P.forEach(p=>{if(!por[p.metodo_pago])por[p.metodo_pago]=0;por[p.metodo_pago]+=parseFloat(p.valor_cobrado);});
+  const por={};P.forEach(p=>{if(!por[p.metodo_pago])por[p.metodo_pago]=0;por[p.metodo_pago]+=(p.valor??parseFloat(p.valor_cobrado??0));});
   if(Object.keys(por).length>0){
     charts['chartMpMes']=new Chart(document.getElementById('chartMpMes'),{
       type:'doughnut',
@@ -394,14 +448,10 @@ async function cargarMes() {
 // ─────────────────────────────────────────────────────────────────
 async function cargarAno() {
   document.getElementById('anoLabel').textContent = ANO;
-  const { data: pagos } = await sb.from('pagos')
-    .select('*,citas(estilistas(nombre,color))')
-    .gte('fecha', ANO+'-01-01').lte('fecha', ANO+'-12-31');
-
-  const P = pagos||[];
-  const total = P.reduce((s,p)=>s+parseFloat(p.valor_cobrado),0);
+  const P = await cargarMovimientos({ desde: ANO+'-01-01', hasta: ANO+'-12-31' });
+  const total = P.reduce((s,p)=>s+p.valor, 0);
   const mesMax = (() => {
-    const pm={};P.forEach(p=>{const m=p.fecha.slice(0,7);if(!pm[m])pm[m]=0;pm[m]+=parseFloat(p.valor_cobrado);});
+    const pm={};P.forEach(p=>{const m=p.fecha.slice(0,7);if(!pm[m])pm[m]=0;pm[m]+=(p.valor??parseFloat(p.valor_cobrado??0));});
     const e=Object.entries(pm).sort((a,b)=>b[1]-a[1])[0];
     return e?MESES_N[parseInt(e[0].split('-')[1])-1]:'—';
   })();
@@ -415,7 +465,7 @@ async function cargarAno() {
 
   // Barras mensuales
   destroyChart('chartMeses');
-  const pm={};P.forEach(p=>{const m=p.fecha.slice(5,7);if(!pm[m])pm[m]=0;pm[m]+=parseFloat(p.valor_cobrado);});
+  const pm={};P.forEach(p=>{const m=p.fecha.slice(5,7);if(!pm[m])pm[m]=0;pm[m]+=(p.valor??parseFloat(p.valor_cobrado??0));});
   charts['chartMeses']=new Chart(document.getElementById('chartMeses'),{
     type:'bar',
     data:{
@@ -427,7 +477,7 @@ async function cargarAno() {
 
   // Torta métodos año
   destroyChart('chartMpAno');
-  const por={};P.forEach(p=>{if(!por[p.metodo_pago])por[p.metodo_pago]=0;por[p.metodo_pago]+=parseFloat(p.valor_cobrado);});
+  const por={};P.forEach(p=>{if(!por[p.metodo_pago])por[p.metodo_pago]=0;por[p.metodo_pago]+=(p.valor??parseFloat(p.valor_cobrado??0));});
   if(Object.keys(por).length>0){
     charts['chartMpAno']=new Chart(document.getElementById('chartMpAno'),{
       type:'doughnut',
@@ -438,7 +488,7 @@ async function cargarAno() {
 
   // Barras por estilista año
   destroyChart('chartEstiAno');
-  const pe={};P.forEach(p=>{const n=p.citas?.estilistas?.nombre||'Otros';if(!pe[n])pe[n]=0;pe[n]+=parseFloat(p.valor_cobrado);});
+  const pe={};P.forEach(p=>{const n=p.citas?.estilistas?.nombre||'Otros';if(!pe[n])pe[n]=0;pe[n]+=(p.valor??parseFloat(p.valor_cobrado??0));});
   const eEntries=Object.entries(pe).sort((a,b)=>b[1]-a[1]);
   charts['chartEstiAno']=new Chart(document.getElementById('chartEstiAno'),{
     type:'bar',
@@ -456,46 +506,39 @@ async function cargarHistorial() {
   const metodo = document.getElementById('fMetodo').value;
   const estiId = document.getElementById('fEstilista').value;
 
-  let q = sb.from('pagos')
-    .select('*,citas(cliente_nombre,cita_servicios(nombre_servicio),estilistas(nombre,color))')
-    .order('fecha',{ascending:false}).order('hora',{ascending:false}).limit(500);
-
-  if (desde) q = q.gte('fecha', desde);
-  if (hasta) q = q.lte('fecha', hasta);
-  if (metodo) q = q.eq('metodo_pago', metodo);
-
-  const { data: pagos } = await q;
-  let P = pagos || [];
-
-  // Filtro por estilista (en cliente side porque es join)
-  if (estiId) P = P.filter(p => p.citas?.estilistas && estilistas.find(e=>e.id==estiId)?.nombre === p.citas.estilistas.nombre);
+  // Cargar pagos + abonos unificados con filtros
+  const P = await cargarMovimientos({ desde: desde||undefined, hasta: hasta||undefined, metodo: metodo||undefined, estiId: estiId||undefined });
 
   pagosHist = P;
-  const total = P.reduce((s,p)=>s+parseFloat(p.valor_cobrado),0);
+  const total      = P.reduce((s,p)=>s+p.valor, 0);
   const diasUnicos = [...new Set(P.map(p=>p.fecha))].length;
+  const nAbonos    = P.filter(p=>p.tipo==='abono').length;
 
   renderKPIs('kHist',[
-    {label:'Total período',     val:fmt(total),   color:'#4ade80'},
-    {label:'Transacciones',     val:P.length,     color:'#60a5fa'},
-    {label:'Días con cobros',   val:diasUnicos,   color:'#a78bfa'},
-    {label:'Ticket promedio',   val:P.length?fmt(total/P.length):'$0', color:'#fbbf24'}
+    {label:'Total período',    val:fmt(total),   color:'#4ade80'},
+    {label:'Movimientos',      val:P.length,     color:'#60a5fa', sub:`${nAbonos} abono${nAbonos!==1?'s':''}`},
+    {label:'Días con cobros',  val:diasUnicos,   color:'#a78bfa'},
+    {label:'Promedio x mov.',  val:P.length?fmt(total/P.length):'$0', color:'#fbbf24'}
   ]);
 
   document.getElementById('totalHist').textContent = fmt(total);
 
-  // Tabla completa
   const tbody = document.getElementById('txHist');
   if (!P.length) { tbody.innerHTML=`<tr><td colspan="7" class="empty-hist">Sin transacciones en el período</td></tr>`; return; }
-  tbody.innerHTML = P.map(p=>`
-    <tr>
+  tbody.innerHTML = P.map(p => {
+    const tipoBadge = p.tipo==='abono'
+      ? `<span style="font-size:9px;background:rgba(251,191,36,0.15);color:#fbbf24;padding:1px 5px;border-radius:4px;margin-left:4px">abono</span>`
+      : '';
+    return `<tr>
       <td class="td-fecha">${p.fecha}</td>
       <td class="td-fecha">${p.hora?.slice(0,5)||'—'}</td>
-      <td class="td-cli">${p.citas?.cliente_nombre||'—'}</td>
+      <td class="td-cli">${p.citas?.cliente_nombre||'—'}${tipoBadge}</td>
       <td class="td-serv">${(p.citas?.cita_servicios||[]).map(s=>s.nombre_servicio).join(', ')||'—'}</td>
       <td class="td-esti">${p.citas?.estilistas?.nombre||'—'}</td>
       <td class="td-mp"><span class="mp-pill">${ICOS[p.metodo_pago]||''} ${p.metodo_pago}</span></td>
-      <td class="td-val">${fmt(p.valor_cobrado)}</td>
-    </tr>`).join('');
+      <td class="td-val">${fmt(p.valor)}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ── Exportar CSV ──────────────────────────────────────────────────
@@ -510,8 +553,8 @@ function exportarCSV() {
     (p.citas?.cita_servicios||[]).map(s=>s.nombre_servicio).join(' | '),
     p.citas?.estilistas?.nombre||'',
     p.metodo_pago,
-    p.valor_cobrado,
-    p.total_servicios
+    p.valor,  // incluye abonos y pagos
+    p.tipo||'pago'
   ].map(enc).join(','));
   const csv = [cab.join(','), ...filas].join('\n');
   const blob = new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
