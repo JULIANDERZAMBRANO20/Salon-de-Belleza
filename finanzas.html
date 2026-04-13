@@ -116,6 +116,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="metodos-grid" id="mpDia"></div>
   <div class="section-lbl">Por estilista — Hoy</div>
   <div style="overflow-x:auto"><table class="esti-table"><thead><tr><th>Estilista</th><th>Citas</th><th>Ingresos</th></tr></thead><tbody id="estiDia"></tbody></table></div>
+  <div class="section-lbl">Egresos del día</div>
+  <div id="egresosDia" style="margin-bottom:16px"></div>
   <div class="section-lbl">Transacciones del día</div>
   <div style="overflow-x:auto"><table class="hist-table"><thead><tr><th>Hora</th><th>Cliente</th><th>Servicios</th><th>Estilista</th><th>Método</th><th>Valor</th></tr></thead><tbody id="txDia"></tbody></table></div>
 </div>
@@ -137,6 +139,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="metodos-grid" id="mpMes"></div>
   <div class="section-lbl">Por estilista — Mes</div>
   <div style="overflow-x:auto"><table class="esti-table"><thead><tr><th>Estilista</th><th>Citas</th><th>Ingresos</th></tr></thead><tbody id="estiMes"></tbody></table></div>
+  <div class="section-lbl" style="margin-top:16px">Egresos del mes</div>
+  <div id="egresosMes" style="margin-bottom:8px"></div>
+  <div class="section-lbl">Desglose egresos por categoría</div>
+  <div id="egresosCatMes" style="margin-bottom:16px"></div>
 </div>
 
 <!-- Tab Año -->
@@ -301,6 +307,17 @@ function renderTxTable(tbodyId, movs, cols=6) {
   }).join('');
 }
 
+// ── Cargar egresos del período ───────────────────────────────────
+async function cargarEgresosPeriodo(desde, hasta) {
+  try {
+    const { data } = await sb.from('egresos')
+      .select('*,egreso_nomina(nombre_estilista,valor)')
+      .gte('fecha', desde).lte('fecha', hasta)
+      .order('fecha').order('creado_en');
+    return data||[];
+  } catch(e) { return []; }
+}
+
 // ── Init ──────────────────────────────────────────────────────────
 window.addEventListener('load', async () => {
   const raw = sessionStorage.getItem('salon_user');
@@ -330,19 +347,25 @@ function setTab(t) {
 // TAB HOY
 // ─────────────────────────────────────────────────────────────────
 async function cargarDia() {
-  const P = await cargarMovimientos(HOY, HOY);
-  const total  = P.reduce((s,m)=>s+m.valor, 0);
-  const nAbono = P.filter(m=>m.tipo==='abono').length;
+  const [P, E] = await Promise.all([
+    cargarMovimientos(HOY, HOY),
+    cargarEgresosPeriodo(HOY, HOY)
+  ]);
+  const total    = P.reduce((s,m)=>s+m.valor, 0);
+  const egresos  = E.reduce((s,e)=>s+parseFloat(e.valor),0);
+  const utilidad = total - egresos;
+  const nAbono   = P.filter(m=>m.tipo==='abono').length;
 
   document.getElementById('kDia').innerHTML =
-    kpi('Total recaudado hoy', fmt(total), '#4ade80') +
-    kpi('Movimientos', P.length, '#60a5fa', nAbono?`${nAbono} abono${nAbono!==1?'s':''}`:null) +
-    kpi('Pagos completos', P.filter(m=>m.tipo==='pago').length, '#a78bfa') +
-    kpi('Abonos', nAbono, '#fbbf24');
+    kpi('Ingresos hoy', fmt(total), '#4ade80') +
+    kpi('Egresos hoy', fmt(egresos), '#f87171') +
+    kpi('Utilidad neta', fmt(utilidad), utilidad>=0?'#a78bfa':'#f87171') +
+    kpi('Movimientos', P.length, '#60a5fa', nAbono?`${nAbono} abono${nAbono!==1?'s':''}`:null);
 
   renderMetodos('mpDia', P);
   renderEstilistas('estiDia', P);
   renderTxTable('txDia', P);
+  renderEgresosLista('egresosDia', E);
 
   destroyChart('chartHoras');
   const porHora = {};
@@ -365,20 +388,24 @@ async function cargarDia() {
 // TAB MES
 // ─────────────────────────────────────────────────────────────────
 async function cargarMes() {
-  const P = await cargarMovimientos(MES+'-01', ultimoDia);
-  const total   = P.reduce((s,m)=>s+m.valor, 0);
-  const diasSet = new Set(P.map(m=>m.fecha));
-  const promDia = diasSet.size ? total/diasSet.size : 0;
-  const nAbono  = P.filter(m=>m.tipo==='abono').length;
+  const [P, E] = await Promise.all([
+    cargarMovimientos(MES+'-01', ultimoDia),
+    cargarEgresosPeriodo(MES+'-01', ultimoDia)
+  ]);
+  const total    = P.reduce((s,m)=>s+m.valor, 0);
+  const egresos  = E.reduce((s,e)=>s+parseFloat(e.valor),0);
+  const utilidad = total - egresos;
+  const nAbono   = P.filter(m=>m.tipo==='abono').length;
 
   document.getElementById('kMes').innerHTML =
-    kpi(`Total ${MESES_N[M-1]}`, fmt(total), '#4ade80') +
-    kpi('Movimientos', P.length, '#60a5fa', nAbono?`${nAbono} abono${nAbono!==1?'s':''}`:null) +
-    kpi('Días con ingresos', diasSet.size, '#a78bfa') +
-    kpi('Promedio por día', fmt(promDia), '#fbbf24');
+    kpi(`Ingresos ${MESES_N[M-1]}`, fmt(total), '#4ade80') +
+    kpi('Egresos', fmt(egresos), '#f87171') +
+    kpi('Utilidad neta', fmt(utilidad), utilidad>=0?'#a78bfa':'#f87171') +
+    kpi('Movimientos', P.length, '#60a5fa', nAbono?`${nAbono} abono${nAbono!==1?'s':''}`:null);
 
   renderMetodos('mpMes', P);
   renderEstilistas('estiMes', P);
+  renderEgresosResumen('egresosMes', 'egresosCatMes', E);
 
   destroyChart('chartDias');
   const porDia={};P.forEach(m=>{porDia[m.fecha]=(porDia[m.fecha]||0)+m.valor;});
@@ -409,11 +436,13 @@ async function cargarAno() {
   const mesMaxEntry = Object.entries(porMes).sort((a,b)=>b[1]-a[1])[0];
   const mesMax = mesMaxEntry ? MESES_N[parseInt(mesMaxEntry[0].split('-')[1])-1] : '—';
 
+  const [EAno] = await Promise.all([cargarEgresosPeriodo(ANO+'-01-01', ANO+'-12-31')]);
+  const egresosAno = EAno.reduce((s,e)=>s+parseFloat(e.valor),0);
   document.getElementById('kAno').innerHTML =
-    kpi(`Total ${ANO}`, fmt(total), '#4ade80') +
-    kpi('Movimientos año', P.length, '#60a5fa') +
-    kpi('Mejor mes', mesMax, '#a78bfa') +
-    kpi('Promedio mensual', fmt(total/12), '#fbbf24');
+    kpi(`Ingresos ${ANO}`, fmt(total), '#4ade80') +
+    kpi('Egresos año', fmt(egresosAno), '#f87171') +
+    kpi('Utilidad neta', fmt(total-egresosAno), (total-egresosAno)>=0?'#a78bfa':'#f87171') +
+    kpi('Mejor mes', mesMax, '#fbbf24');
 
   destroyChart('chartMeses');
   const dataMeses = MESES_N.map((_,i)=>porMes[ANO+'-'+String(i+1).padStart(2,'0')]||0);
@@ -482,6 +511,46 @@ async function cargarHistorial() {
       <td class="td-val">${fmt(m.valor)}</td>
     </tr>`;
   }).join('');
+}
+
+// ── Render egresos en finanzas ───────────────────────────────────
+const CAT_ICO = {'Arriendo':'🏠','Servicios públicos':'💡','Productos/insumos':'🧴','Nómina':'👩‍💼','Publicidad':'📢','Otros':'📋'};
+
+function renderEgresosLista(elId, egresos) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  if (!egresos.length) { el.innerHTML='<p style="color:#4b5563;font-size:12px;padding:4px 0">Sin egresos</p>'; return; }
+  el.innerHTML = egresos.map(e=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
+      <div>
+        <span style="font-size:11px;font-weight:600;color:#f87171">${CAT_ICO[e.categoria]||'📋'} ${e.categoria}</span>
+        ${e.descripcion?`<span style="font-size:11px;color:#4b5563;margin-left:6px">${e.descripcion}</span>`:''}
+      </div>
+      <span style="font-size:13px;font-weight:700;color:#f87171">$${Math.round(parseFloat(e.valor)).toLocaleString('es-CO')}</span>
+    </div>`).join('');
+}
+
+function renderEgresosResumen(elIdResumen, elIdCat, egresos) {
+  const totalEg = egresos.reduce((s,e)=>s+parseFloat(e.valor),0);
+  const el = document.getElementById(elIdResumen);
+  if (el) el.innerHTML = totalEg > 0
+    ? `<div style="display:flex;justify-content:space-between;align-items:center;background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.15);border-radius:10px;padding:12px 16px">
+        <span style="font-size:13px;color:#9ca3af">${egresos.length} egreso${egresos.length!==1?'s':''}</span>
+        <span style="font-size:20px;font-weight:700;color:#f87171">$${Math.round(totalEg).toLocaleString('es-CO')}</span>
+       </div>`
+    : '<p style="color:#4b5563;font-size:12px;padding:4px 0">Sin egresos</p>';
+  // Por categoría
+  const por={};
+  egresos.forEach(e=>{por[e.categoria]=(por[e.categoria]||0)+parseFloat(e.valor);});
+  const elCat = document.getElementById(elIdCat);
+  if (elCat) elCat.innerHTML = Object.entries(por).sort((a,b)=>b[1]-a[1]).map(([cat,val])=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
+      <span style="font-size:12px;color:#9ca3af">${CAT_ICO[cat]||'📋'} ${cat}</span>
+      <div style="text-align:right">
+        <span style="font-size:13px;font-weight:600;color:#f87171">$${Math.round(val).toLocaleString('es-CO')}</span>
+        <span style="font-size:10px;color:#4b5563;margin-left:6px">${totalEg?Math.round(val/totalEg*100):0}%</span>
+      </div>
+    </div>`).join('')||'<p style="color:#4b5563;font-size:12px">Sin egresos</p>';
 }
 
 // ── Exportar CSV ──────────────────────────────────────────────────
