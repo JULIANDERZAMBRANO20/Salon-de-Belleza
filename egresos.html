@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Salón · Egresos</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d0d14;color:#f1f0ec;min-height:100vh}
+.topbar{background:#13131f;border-bottom:1px solid rgba(255,255,255,0.06);padding:0 16px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.topbar-left{display:flex;align-items:center;gap:10px}
+.back-btn{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:6px 12px;font-size:13px;color:#9ca3af;text-decoration:none}
+.page-title{font-size:15px;font-weight:600;color:#f1f0ec}
+.btn-nuevo{background:linear-gradient(135deg,#f87171,#ef4444);border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;color:#fff;cursor:pointer}
+/* Layout */
+.layout{display:grid;grid-template-columns:1fr;gap:0}
+@media(min-width:800px){.layout{grid-template-columns:380px 1fr;height:calc(100vh - 56px)}}
+/* Panel formulario */
+.form-panel{background:#13131f;border-right:1px solid rgba(255,255,255,0.06);padding:20px;overflow-y:auto}
+@media(min-width:800px){.form-panel{height:calc(100vh - 56px)}}
+.form-title{font-size:13px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:16px}
+.fl{font-size:11px;color:#6b7280;margin-bottom:6px;font-weight:500;margin-top:14px}
+.fl:first-of-type{margin-top:0}
+.fi{width:100%;background:#0d0d14;border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:10px 13px;font-size:13px;color:#f1f0ec;outline:none;font-family:inherit;transition:border .2s}
+.fi:focus{border-color:rgba(239,68,68,0.4)}
+.fi option{background:#13131f;color:#f1f0ec}
+/* Categorías como chips */
+.cat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:4px}
+.cat-btn{background:#0d0d14;border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:9px 8px;text-align:center;cursor:pointer;transition:all .15s;font-size:12px;color:#9ca3af;font-family:inherit}
+.cat-btn:hover{border-color:rgba(239,68,68,0.3);color:#f87171}
+.cat-btn.sel{background:rgba(239,68,68,0.1);border-color:rgba(239,68,68,0.4);color:#f87171;font-weight:600}
+/* Métodos de pago */
+.mp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.mp-btn{background:#0d0d14;border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:8px 4px;text-align:center;cursor:pointer;transition:all .15s;user-select:none}
+.mp-btn:hover{border-color:rgba(239,68,68,0.3)}
+.mp-btn.sel{background:rgba(239,68,68,0.1);border-color:rgba(239,68,68,0.45)}
+.mp-ico{font-size:15px;margin-bottom:2px}
+.mp-nombre{font-size:10px;color:#9ca3af;font-weight:500}
+.mp-btn.sel .mp-nombre{color:#f87171}
+/* Sección nómina */
+.nomina-section{background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.15);border-radius:10px;padding:14px;margin-top:10px;display:none}
+.nomina-section.show{display:block}
+.nomina-title{font-size:12px;font-weight:600;color:#f87171;margin-bottom:12px}
+.nomina-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.nomina-nombre{flex:1;font-size:13px;color:#f1f0ec}
+.nomina-input{width:120px;background:#0d0d14;border:1px solid rgba(255,255,255,0.08);border-radius:7px;padding:7px 10px;font-size:13px;color:#f1f0ec;outline:none;font-family:inherit;text-align:right}
+.nomina-input:focus{border-color:rgba(239,68,68,0.4)}
+.nomina-total{display:flex;justify-content:space-between;padding-top:10px;margin-top:4px;border-top:1px solid rgba(255,255,255,0.07);font-size:13px}
+.nomina-total-lbl{color:#6b7280}
+.nomina-total-val{color:#f87171;font-weight:700}
+/* Botón guardar */
+.btn-guardar{width:100%;background:linear-gradient(135deg,#f87171,#ef4444);border:none;border-radius:11px;padding:13px;font-size:15px;font-weight:600;color:#fff;cursor:pointer;margin-top:16px;display:flex;align-items:center;justify-content:center;gap:8px;transition:opacity .2s}
+.btn-guardar:hover{opacity:.9}
+.btn-guardar:disabled{background:#1f2937;color:#4b5563;cursor:not-allowed}
+.spinner{width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:none}
+.btn-guardar.loading .spinner{display:block}
+.btn-guardar.loading .btn-txt{display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* Panel historial */
+.hist-panel{padding:16px;overflow-y:auto}
+@media(min-width:800px){.hist-panel{height:calc(100vh - 56px)}}
+/* KPIs resumen */
+.kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px}
+@media(min-width:500px){.kpis{grid-template-columns:repeat(4,1fr)}}
+.kpi{background:#13131f;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:14px}
+.kpi-lbl{font-size:10px;color:#6b7280;font-weight:500;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+.kpi-val{font-size:20px;font-weight:700}
+/* Filtros */
+.filtros{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
+.fi-sm{background:#13131f;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:7px 10px;font-size:12px;color:#f1f0ec;outline:none;cursor:pointer;font-family:inherit}
+.fi-sm:focus{border-color:rgba(239,68,68,0.35)}
+.fi-sm option{background:#13131f}
+.section-lbl{font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px}
+/* Tabla egresos */
+.egreso-card{background:#13131f;border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:13px 15px;margin-bottom:8px;transition:border-color .15s}
+.egreso-card:hover{border-color:rgba(239,68,68,0.2)}
+.ec-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
+.ec-cat{font-size:11px;font-weight:600;padding:2px 10px;border-radius:99px;background:rgba(239,68,68,0.1);color:#f87171;border:1px solid rgba(239,68,68,0.2)}
+.ec-val{font-size:16px;font-weight:700;color:#f87171}
+.ec-desc{font-size:13px;color:#f1f0ec;margin-bottom:4px}
+.ec-meta{font-size:11px;color:#4b5563;display:flex;gap:12px;flex-wrap:wrap}
+.ec-nomina{margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.05)}
+.ec-nomina-item{font-size:11px;color:#9ca3af;display:flex;justify-content:space-between;padding:2px 0}
+.btn-del{background:transparent;border:none;color:#374151;cursor:pointer;font-size:16px;transition:color .15s;padding:2px 6px;flex-shrink:0}
+.btn-del:hover{color:#f87171}
+.empty-state{text-align:center;padding:48px 20px;color:#374151;font-size:13px}
+/* Toast */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#13131f;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:12px 20px;font-size:14px;color:#f1f0ec;transition:transform .3s;z-index:999;white-space:nowrap;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
+.toast.show{transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <a href="dashboard.html" class="back-btn">← Panel</a>
+    <span class="page-title">📤 Egresos</span>
+  </div>
+</div>
+
+<div class="layout">
+
+  <!-- ── Panel Formulario ── -->
+  <div class="form-panel">
+    <div class="form-title">📤 Registrar egreso</div>
+
+    <div class="fl">Fecha</div>
+    <input class="fi" type="date" id="fecha"/>
+
+    <div class="fl">Categoría</div>
+    <div class="cat-grid">
+      <button class="cat-btn" onclick="selCat(this,'Arriendo')">🏠 Arriendo</button>
+      <button class="cat-btn" onclick="selCat(this,'Servicios públicos')">💡 Servicios públicos</button>
+      <button class="cat-btn" onclick="selCat(this,'Productos/insumos')">🧴 Productos/insumos</button>
+      <button class="cat-btn" onclick="selCat(this,'Nómina')">👩‍💼 Nómina</button>
+      <button class="cat-btn" onclick="selCat(this,'Publicidad')">📢 Publicidad</button>
+      <button class="cat-btn" onclick="selCat(this,'Otros')">📋 Otros</button>
+    </div>
+
+    <!-- Sección nómina por estilista -->
+    <div class="nomina-section" id="nominaSection">
+      <div class="nomina-title">💰 Pago por estilista</div>
+      <div id="nominaRows"></div>
+      <div class="nomina-total">
+        <span class="nomina-total-lbl">Total nómina:</span>
+        <span class="nomina-total-val" id="nominaTotal">$0</span>
+      </div>
+    </div>
+
+    <!-- Valor (oculto en nómina, calculado automáticamente) -->
+    <div id="valorSection">
+      <div class="fl">Valor ($)</div>
+      <input class="fi" type="number" id="valor" placeholder="0" min="0" oninput="actualizarValor()"/>
+    </div>
+
+    <div class="fl">Descripción <span style="color:#4b5563;font-weight:400">(opcional)</span></div>
+    <input class="fi" type="text" id="descripcion" placeholder="Ej: Factura de agua y luz mayo"/>
+
+    <div class="fl">Método de pago</div>
+    <div class="mp-grid" id="mpGrid"></div>
+
+    <div class="fl">Notas <span style="color:#4b5563;font-weight:400">(opcional)</span></div>
+    <input class="fi" type="text" id="notas" placeholder="Ej: Proveedor, número de factura..."/>
+
+    <button class="btn-guardar" id="btnGuardar" onclick="guardarEgreso()">
+      <div class="spinner"></div>
+      <span class="btn-txt">📤 Registrar egreso</span>
+    </button>
+  </div>
+
+  <!-- ── Panel Historial ── -->
+  <div class="hist-panel">
+    <!-- KPIs del mes -->
+    <div class="kpis" id="kpisEgresos"></div>
+
+    <!-- Filtros -->
+    <div class="filtros">
+      <select class="fi-sm" id="filtroMes" onchange="cargarEgresos()">
+        <!-- opciones generadas dinámicamente -->
+      </select>
+      <select class="fi-sm" id="filtroCat" onchange="cargarEgresos()">
+        <option value="">Todas las categorías</option>
+        <option>Arriendo</option>
+        <option>Servicios públicos</option>
+        <option>Productos/insumos</option>
+        <option>Nómina</option>
+        <option>Publicidad</option>
+        <option>Otros</option>
+      </select>
+    </div>
+
+    <div class="section-lbl">Historial de egresos</div>
+    <div id="listaEgresos"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SUPABASE_URL = 'https://leuvcsfbzzlhvyedzplj.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxldXZjc2ZienpsaHZ5ZWR6cGxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNzI4NDMsImV4cCI6MjA5MDY0ODg0M30.7kxn3mbwJRhC5t6aAwx6OPGwA6_t7pwf1ZyzW-VAY5w';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// Colombia UTC-5
+const col     = () => new Date(Date.now()-5*60*60*1000);
+const HOY     = col().toISOString().slice(0,10);
+const MES     = HOY.slice(0,7);
+
+const METODOS = ['Efectivo','Nequi','Daviplata','Transferencia','Tarjeta débito','Tarjeta crédito'];
+const ICOS    = {'Efectivo':'💵','Nequi':'📱','Daviplata':'📲','Transferencia':'🏦','Tarjeta débito':'💳','Tarjeta crédito':'💳'};
+const CAT_ICON= {'Arriendo':'🏠','Servicios públicos':'💡','Productos/insumos':'🧴','Nómina':'👩‍💼','Publicidad':'📢','Otros':'📋'};
+
+let session=null, estilistas=[], catSel=null, mpSel=null;
+
+// ── Init ──────────────────────────────────────────────────────────
+window.addEventListener('load', async () => {
+  const raw = sessionStorage.getItem('salon_user');
+  if (!raw) { window.location.href='index.html'; return; }
+  session = JSON.parse(raw);
+  if (session.rol !== 'admin') { window.location.href='dashboard.html'; return; }
+
+  // Fecha por defecto
+  document.getElementById('fecha').value = HOY;
+
+  // Métodos de pago
+  const mpGrid = document.getElementById('mpGrid');
+  METODOS.forEach(m => {
+    const d = document.createElement('div');
+    d.className='mp-btn'; d.innerHTML=`<div class="mp-ico">${ICOS[m]}</div><div class="mp-nombre">${m}</div>`;
+    d.onclick = () => { document.querySelectorAll('.mp-btn').forEach(b=>b.classList.remove('sel')); d.classList.add('sel'); mpSel=m; };
+    mpGrid.appendChild(d);
+  });
+
+  // Selector de meses
+  const selMes = document.getElementById('filtroMes');
+  for (let i=0; i<12; i++) {
+    const d = new Date(Date.UTC(parseInt(MES.split('-')[0]), parseInt(MES.split('-')[1])-1-i, 1));
+    const val = d.toISOString().slice(0,7);
+    const lbl = d.toLocaleDateString('es-CO',{month:'long',year:'numeric',timeZone:'UTC'});
+    const o = document.createElement('option'); o.value=val; o.textContent=lbl;
+    if (i===0) o.selected=true;
+    selMes.appendChild(o);
+  }
+
+  // Cargar estilistas para nómina
+  const { data } = await sb.from('estilistas').select('id,nombre').eq('activo',true).order('nombre');
+  estilistas = data||[];
+  renderNominaRows();
+
+  await cargarEgresos();
+});
+
+// ── Categoría ─────────────────────────────────────────────────────
+function selCat(el, cat) {
+  document.querySelectorAll('.cat-btn').forEach(b=>b.classList.remove('sel'));
+  el.classList.add('sel');
+  catSel = cat;
+  const esNomina = cat === 'Nómina';
+  document.getElementById('nominaSection').classList.toggle('show', esNomina);
+  document.getElementById('valorSection').style.display = esNomina ? 'none' : 'block';
+  if (esNomina) actualizarNominaTotal();
+  else actualizarValor();
+}
+
+// ── Nómina ────────────────────────────────────────────────────────
+function renderNominaRows() {
+  document.getElementById('nominaRows').innerHTML = estilistas.map(e=>`
+    <div class="nomina-row">
+      <div class="nomina-nombre">${e.nombre}</div>
+      <input class="nomina-input" type="number" id="nom-${e.id}" placeholder="0" min="0"
+        oninput="actualizarNominaTotal()" onfocus="this.select()"/>
+    </div>`).join('');
+}
+
+function actualizarNominaTotal() {
+  const total = estilistas.reduce((s,e)=>{
+    return s + (parseFloat(document.getElementById('nom-'+e.id)?.value)||0);
+  },0);
+  document.getElementById('nominaTotal').textContent = '$'+total.toLocaleString('es-CO');
+}
+
+function actualizarValor() {
+  // nada — solo para trigger
+}
+
+function getNominaTotal() {
+  return estilistas.reduce((s,e)=>s+(parseFloat(document.getElementById('nom-'+e.id)?.value)||0),0);
+}
+
+// ── Guardar egreso ────────────────────────────────────────────────
+async function guardarEgreso() {
+  const fecha  = document.getElementById('fecha').value;
+  const desc   = document.getElementById('descripcion').value.trim();
+  const notas  = document.getElementById('notas').value.trim();
+  const esNom  = catSel === 'Nómina';
+  const valor  = esNom ? getNominaTotal() : (parseFloat(document.getElementById('valor').value)||0);
+
+  if (!fecha)   { toast('Selecciona la fecha','error'); return; }
+  if (!catSel)  { toast('Selecciona una categoría','error'); return; }
+  if (!mpSel)   { toast('Selecciona el método de pago','error'); return; }
+  if (valor<=0) { toast('Ingresa un valor mayor a 0','error'); return; }
+  if (esNom && getNominaTotal()<=0) { toast('Asigna valores a las estilistas','error'); return; }
+
+  const btn = document.getElementById('btnGuardar');
+  btn.classList.add('loading'); btn.disabled=true;
+
+  try {
+    const { data: egData, error } = await sb.from('egresos').insert({
+      fecha, categoria: catSel, descripcion: desc||null,
+      valor, metodo_pago: mpSel, notas: notas||null,
+      registrado_por: session.usuario
+    }).select('id').single();
+
+    if (error) throw error;
+
+    // Si es nómina → guardar detalle por estilista
+    if (esNom) {
+      const detalles = estilistas
+        .filter(e => (parseFloat(document.getElementById('nom-'+e.id)?.value)||0) > 0)
+        .map(e => ({
+          egreso_id: egData.id,
+          estilista_id: e.id,
+          nombre_estilista: e.nombre,
+          valor: parseFloat(document.getElementById('nom-'+e.id).value)||0
+        }));
+      if (detalles.length) await sb.from('egreso_nomina').insert(detalles);
+    }
+
+    toast(`✅ Egreso de $${valor.toLocaleString('es-CO')} registrado`);
+    limpiarForm();
+    await cargarEgresos();
+  } catch(e) {
+    toast('Error al guardar. Intenta de nuevo.','error');
+    console.error(e);
+  } finally {
+    btn.classList.remove('loading'); btn.disabled=false;
+  }
+}
+
+function limpiarForm() {
+  document.getElementById('fecha').value = HOY;
+  document.getElementById('descripcion').value = '';
+  document.getElementById('valor').value = '';
+  document.getElementById('notas').value = '';
+  document.querySelectorAll('.cat-btn').forEach(b=>b.classList.remove('sel'));
+  document.querySelectorAll('.mp-btn').forEach(b=>b.classList.remove('sel'));
+  document.getElementById('nominaSection').classList.remove('show');
+  document.getElementById('valorSection').style.display='block';
+  estilistas.forEach(e=>{ const el=document.getElementById('nom-'+e.id); if(el) el.value=''; });
+  document.getElementById('nominaTotal').textContent='$0';
+  catSel=null; mpSel=null;
+}
+
+// ── Cargar historial ──────────────────────────────────────────────
+async function cargarEgresos() {
+  const mes    = document.getElementById('filtroMes').value;
+  const catFil = document.getElementById('filtroCat').value;
+  const [y,m]  = mes.split('-').map(Number);
+  const ini    = mes+'-01';
+  const fin    = new Date(Date.UTC(y,m,0)).toISOString().slice(0,10);
+
+  let q = sb.from('egresos')
+    .select('*,egreso_nomina(nombre_estilista,valor)')
+    .gte('fecha',ini).lte('fecha',fin).order('fecha',{ascending:false}).order('creado_en',{ascending:false});
+  if (catFil) q = q.eq('categoria',catFil);
+
+  const { data } = await q;
+  const egresos = data||[];
+
+  // KPIs
+  const totalMes   = egresos.reduce((s,e)=>s+parseFloat(e.valor),0);
+  const porCat     = {};
+  egresos.forEach(e=>{ porCat[e.categoria]=(porCat[e.categoria]||0)+parseFloat(e.valor); });
+  const catMayor   = Object.entries(porCat).sort((a,b)=>b[1]-a[1])[0];
+  const nomMes     = egresos.filter(e=>e.categoria==='Nómina').reduce((s,e)=>s+parseFloat(e.valor),0);
+
+  document.getElementById('kpisEgresos').innerHTML = `
+    <div class="kpi"><div class="kpi-lbl">Total egresos</div><div class="kpi-val" style="color:#f87171">$${Math.round(totalMes).toLocaleString('es-CO')}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Registros</div><div class="kpi-val" style="color:#60a5fa">${egresos.length}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Mayor gasto</div><div class="kpi-val" style="color:#fbbf24;font-size:14px">${catMayor?CAT_ICON[catMayor[0]]+' '+catMayor[0]:'—'}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Nómina</div><div class="kpi-val" style="color:#a78bfa">$${Math.round(nomMes).toLocaleString('es-CO')}</div></div>`;
+
+  // Lista
+  const lista = document.getElementById('listaEgresos');
+  if (!egresos.length) {
+    lista.innerHTML='<div class="empty-state">Sin egresos en este período</div>'; return;
+  }
+  lista.innerHTML = egresos.map(e => {
+    const nomDetalle = e.egreso_nomina?.length
+      ? `<div class="ec-nomina">${e.egreso_nomina.map(n=>`
+          <div class="ec-nomina-item">
+            <span>👩‍💼 ${n.nombre_estilista}</span>
+            <span style="color:#f87171;font-weight:600">$${parseInt(n.valor).toLocaleString('es-CO')}</span>
+          </div>`).join('')}</div>` : '';
+    return `<div class="egreso-card">
+      <div class="ec-top">
+        <span class="ec-cat">${CAT_ICON[e.categoria]||'📋'} ${e.categoria}</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="ec-val">$${Math.round(parseFloat(e.valor)).toLocaleString('es-CO')}</span>
+          <button class="btn-del" onclick="eliminarEgreso(${e.id})" title="Eliminar">✕</button>
+        </div>
+      </div>
+      ${e.descripcion?`<div class="ec-desc">${e.descripcion}</div>`:''}
+      <div class="ec-meta">
+        <span>📅 ${e.fecha}</span>
+        <span>${ICOS[e.metodo_pago]||'💰'} ${e.metodo_pago}</span>
+        ${e.notas?`<span>📝 ${e.notas}</span>`:''}
+      </div>
+      ${nomDetalle}
+    </div>`;
+  }).join('');
+}
+
+// ── Eliminar egreso ───────────────────────────────────────────────
+async function eliminarEgreso(id) {
+  if (!confirm('¿Eliminar este egreso? Esta acción no se puede deshacer.')) return;
+  await sb.from('egresos').delete().eq('id',id);
+  toast('Egreso eliminado');
+  await cargarEgresos();
+}
+
+// ── Toast ─────────────────────────────────────────────────────────
+function toast(msg,tipo='success') {
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className='toast show '+(tipo==='error'?'':'');
+  t.style.borderColor=tipo==='error'?'rgba(239,68,68,0.3)':'rgba(74,222,128,0.3)';
+  setTimeout(()=>t.classList.remove('show'),3000);
+}
+</script>
+</body>
+</html>
