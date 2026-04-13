@@ -97,6 +97,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <a href="clientes.html" class="accion-btn"><div class="ico" style="background:rgba(74,222,128,0.15)">👤</div>Clientes</a>
   <a href="servicios.html" class="accion-btn"><div class="ico" style="background:rgba(251,191,36,0.15)">✂️</div>Servicios</a>
   <a href="finanzas.html" class="accion-btn" id="linkFinanzas" style="display:none"><div class="ico" style="background:rgba(74,222,128,0.15)">💰</div>Finanzas</a>
+  <a href="egresos.html" class="accion-btn" id="linkEgresos" style="display:none"><div class="ico" style="background:rgba(239,68,68,0.15)">📤</div>Egresos</a>
   <a href="admin.html" class="accion-btn" id="linkAdmin" style="display:none"><div class="ico" style="background:rgba(239,68,68,0.15)">⚙️</div>Admin</a>
 </div>
 
@@ -104,7 +105,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <div class="nav-bar">
   <div class="nav-tab activo" onclick="cambiarTab('hoy')">Hoy</div>
   <div class="nav-tab" onclick="cambiarTab('mes')">Este mes</div>
-  <div class="nav-tab" onclick="cambiarTab('pagos')">Pagos</div>
 </div>
 
 <!-- Tab Hoy -->
@@ -121,13 +121,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div id="citasMes"></div>
 </div>
 
-<!-- Tab Pagos -->
-<div class="tab-content" id="tab-pagos">
-  <div class="section-title">Ingresos por método de pago — Hoy</div>
-  <div class="pagos-grid" id="pagosMetodoHoy"></div>
-  <div class="section-title" style="margin-top:16px">Últimos pagos registrados</div>
-  <div id="ultimosPagos"></div>
-</div>
+
 
 <script>
   const SUPABASE_URL = 'https://leuvcsfbzzlhvyedzplj.supabase.co';
@@ -162,6 +156,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     if (session.rol === 'admin') {
       document.getElementById('linkAdmin').style.display = 'flex';
       document.getElementById('linkFinanzas').style.display = 'flex';
+      document.getElementById('linkEgresos').style.display = 'flex';
     }
     await cargarHoy();
   });
@@ -174,9 +169,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     });
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('activo'));
     document.getElementById('tab-' + tab).classList.add('activo');
-    if      (tab === 'hoy')   cargarHoy();
-    else if (tab === 'mes')   cargarMes();
-    else                      cargarPagos();
+    if (tab === 'hoy') cargarHoy();
+    else if (tab === 'mes') cargarMes();
   }
 
   // ── Tab Hoy ───────────────────────────────────────────────────────
